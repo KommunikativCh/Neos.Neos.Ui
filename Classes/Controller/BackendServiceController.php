@@ -15,12 +15,15 @@ use Neos\ContentRepository\Domain\Model\NodeInterface;
 use Neos\ContentRepository\Domain\Repository\WorkspaceRepository;
 use Neos\Eel\FlowQuery\FlowQuery;
 use Neos\Flow\Annotations as Flow;
+use Neos\Flow\Mvc\ActionRequest;
+use Neos\Flow\Mvc\ActionResponse;
 use Neos\Flow\Mvc\Controller\ActionController;
 use Neos\Flow\Mvc\RequestInterface;
 use Neos\Flow\Mvc\ResponseInterface;
 use Neos\Flow\Mvc\View\JsonView;
 use Neos\Flow\Persistence\PersistenceManagerInterface;
 use Neos\Neos\Domain\Service\ContentContextFactory;
+use Neos\Neos\Domain\Service\ContentDimensionPresetSourceInterface;
 use Neos\Neos\Service\PublishingService;
 use Neos\Neos\Service\UserService;
 use Neos\Neos\Ui\ContentRepository\Service\NodeService;
@@ -114,6 +117,12 @@ class BackendServiceController extends ActionController
     protected $clipboard;
 
     /**
+     * @Flow\Inject
+     * @var ContentDimensionPresetSourceInterface
+     */
+    protected $contentDimensionsPresetSource;
+
+    /**
      * Set the controller context on the feedback collection after the controller
      * has been initialized
      *
@@ -121,7 +130,7 @@ class BackendServiceController extends ActionController
      * @param ResponseInterface $response
      * @return void
      */
-    public function initializeController(RequestInterface $request, ResponseInterface $response)
+    protected function initializeController(ActionRequest $request, ActionResponse $response)
     {
         parent::initializeController($request, $response);
         $this->feedbackCollection->setControllerContext($this->getControllerContext());
@@ -393,23 +402,49 @@ class BackendServiceController extends ActionController
     /**
      * @throws \Neos\Flow\Mvc\Exception\NoSuchArgumentException
      */
-    public function initializeGetPolicyInformationAction()
+    public function initializeGetAdditionalNodeMetadataAction()
     {
         $this->arguments->getArgument('nodes')->getPropertyMappingConfiguration()->allowAllProperties();
     }
 
     /**
+     * Fetches all the node information that can be lazy-loaded
+     *
      * @param array<NodeInterface> $nodes
      */
-    public function getPolicyInformationAction(array $nodes)
+    public function getAdditionalNodeMetadataAction(array $nodes)
     {
         $result = [];
         /** @var NodeInterface $node */
         foreach ($nodes as $node) {
-            $result[$node->getContextPath()] = ['policy' => $this->nodePolicyService->getNodePolicyInformation($node)];
+            $otherNodeVariants = array_values(array_filter(array_map(function ($node) {
+                return $this->getCurrentDimensionPresetIdentifiersForNode($node);
+            }, $node->getOtherNodeVariants())));
+            $result[$node->getContextPath()] = [
+                'policy' => $this->nodePolicyService->getNodePolicyInformation($node),
+                'dimensions' => $this->getCurrentDimensionPresetIdentifiersForNode($node),
+                'otherNodeVariants' => $otherNodeVariants
+            ];
         }
 
         $this->view->assign('value', $result);
+    }
+
+    /**
+     * Gets an array of current preset identifiers for each dimension of the give node
+     *
+     * @param NodeInterface $node
+     * @return array
+     */
+    protected function getCurrentDimensionPresetIdentifiersForNode($node)
+    {
+        $targetPresets = $this->contentDimensionsPresetSource->findPresetsByTargetValues($node->getDimensions());
+        $presetCombo = [];
+        foreach ($targetPresets as $dimensionName => $presetConfig) {
+            $fullPresetConfig = $this->contentDimensionsPresetSource->findPresetByDimensionValues($dimensionName, $presetConfig['values']);
+            $presetCombo[$dimensionName] = $fullPresetConfig['identifier'];
+        }
+        return $presetCombo;
     }
 
     /**

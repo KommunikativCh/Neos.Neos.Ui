@@ -8,9 +8,14 @@
 
 .publishBtn {
     min-width: 212px;
+
+    @media(max-width: 768px) {
+        min-width: auto;
+    }
 }
 .dropDown {
     position: static;
+    width: auto;
 }
 .dropDown__contents {
     padding: 2px !important;
