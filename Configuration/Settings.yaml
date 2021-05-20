@@ -1,12 +1,17 @@
 
 Neos:
   Neos:
+
+    modules:
+      content:
+        position: 'start'
+        label: 'Neos.Neos:Main:content'
+        controller: 'Neos\Neos\Ui\Controller\BackendController'
+        description: 'Neos.Neos:Modules:management.description'
+        icon: fas fa-file
+        mainStylesheet: 'Lite'
+
     userInterface:
-      routeAfterLogin:
-        values:
-          '@package': 'Neos.Neos.Ui'
-          '@controller': 'Backend'
-          '@action': 'index'
 # New support for width and height of the preview mode:
 #      editPreviewModes:
 #        rawContent:
@@ -23,6 +28,7 @@ Neos:
     fusion:
       autoInclude:
         Neos.Neos.Ui: true
+
     Ui:
 
       splashScreen:
@@ -63,12 +69,11 @@ Neos:
           'UI.FullScreen.toggle': 't f'
           'UI.LeftSideBar.toggle': 't l'
           'UI.LeftSideBar.toggleContentTree': 't c'
+          'UI.LeftSideBar.toggleSearchBar': 't s'
 
           'UI.AddNodeModal.close': 'c m'
 
           'UI.Drawer.toggle': 't d'
-
-          'UI.EditModePanel.toggle': 't e'
 
           'UI.InsertionModeModal.cancel': 'c i'
           'UI.InsertionModeModal.apply': 'a i'
@@ -112,12 +117,11 @@ Neos:
         metaData:
           documentNode: '${q(documentNode).property("_contextPath")}'
           siteNode: '${q(site).property(''_contextPath'')}'
-          previewUrl: '${Neos.Ui.NodeInfo.createRedirectToNode(controllerContext, q(documentNode).context({workspaceName: documentNode.context.workspace.baseWorkspace.name}).get(0))}'
+          previewUrl: '${Neos.Ui.NodeInfo.createRedirectToNode(controllerContext, documentNode)}'
           contentDimensions:
             active: '${documentNode.context.dimensions}'
             allowedPresets: '${Neos.Ui.Api.emptyArrayToObject(Neos.Ui.ContentDimensions.allowedPresetsByName(documentNode.context.dimensions))}'
           documentNodeSerialization: '${Neos.Ui.NodeInfo.renderNodeWithPropertiesAndChildrenInformation(documentNode, controllerContext)}'
-          url: '${Neos.Ui.NodeInfo.uri(documentNode, controllerContext)}'
       initialState:
         changes:
           pending: {  }
@@ -128,7 +132,7 @@ Neos:
             byContextPath: '${Neos.Ui.NodeInfo.defaultNodesForBackend(site, documentNode, controllerContext)}'
             siteNode: '${q(site).property(''_contextPath'')}'
             documentNode: '${q(documentNode).property(''_contextPath'')}'
-            clipboard: '${clipboardNode || null}'
+            clipboard: '${clipboardNodes || []}'
             clipboardMode: '${clipboardMode || null}'
           contentDimensions:
             byName: '${Neos.Ui.ContentDimensions.contentDimensionsByName()}'
@@ -144,12 +148,12 @@ Neos:
           editPreviewMode: '${q(user).property("preferences.preferences")["contentEditing.editPreviewMode"] || Configuration.setting(''Neos.Neos.userInterface.defaultEditPreviewMode'')}'
           fullScreen:
             isFullScreen: false
-          editModePanel:
-            isHidden: true
           leftSideBar:
             isHidden: false
             contentTree:
               isHidden: true
+            searchBar:
+              isVisible: false
           rightSideBar:
             isHidden: false
           addNodeModal:
@@ -160,7 +164,7 @@ Neos:
           pageTree:
             isLoading: false
             hasError: false
-            focused: '${q(documentNode).property(''_contextPath'')}'
+            focused: '${[q(documentNode).property(''_contextPath'')]}'
             active: '${q(documentNode).property(''_contextPath'')}'
           remote:
             isSaving: false
@@ -208,8 +212,6 @@ Neos:
           position: 'before Neos.Neos'
   Fusion:
     defaultContext:
-      Neos.Ui.Sites: Neos\Neos\Ui\Fusion\Helper\SitesHelper
-      Neos.Ui.Modules: Neos\Neos\Ui\Fusion\Helper\ModulesHelper
       Neos.Ui.Workspace: Neos\Neos\Ui\Fusion\Helper\WorkspaceHelper
       Neos.Ui.StaticResources: Neos\Neos\Ui\Fusion\Helper\StaticResourcesHelper
       Neos.Ui.PositionalArraySorter: Neos\Neos\Ui\Fusion\Helper\PositionalArraySorterHelper

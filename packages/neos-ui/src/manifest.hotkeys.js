@@ -31,6 +31,11 @@ manifest('main.hotkeys', {}, (globalRegistry, {frontendConfiguration}) => {
             action: actions.UI.LeftSideBar.toggleContentTree
         });
 
+        hotkeyRegistry.set('UI.LeftSideBar.toggleSearchBar', {
+            description: 'Toggle search bar',
+            action: actions.UI.LeftSideBar.toggleSearchBar
+        });
+
         hotkeyRegistry.set('UI.AddNodeModal.close', {
             description: 'Close Add-Node-Modal',
             action: actions.UI.AddNodeModal.close
@@ -39,11 +44,6 @@ manifest('main.hotkeys', {}, (globalRegistry, {frontendConfiguration}) => {
         hotkeyRegistry.set('UI.Drawer.toggle', {
             description: 'Toggle Drawer',
             action: actions.UI.Drawer.toggle
-        });
-
-        hotkeyRegistry.set('UI.EditModePanel.toggle', {
-            description: 'Toggle EditModePanel',
-            action: actions.UI.EditModePanel.toggle
         });
 
         hotkeyRegistry.set('UI.InsertionModeModal.cancel', {

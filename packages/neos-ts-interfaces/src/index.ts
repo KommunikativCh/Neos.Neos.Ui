@@ -72,6 +72,7 @@ export interface Node {
     };
     isFullyLoaded: boolean;
     uri: string;
+    parent: NodeContextPath;
     policy?: NodePolicy;
     dimensions?: DimensionPresetCombination;
     otherNodeVariants?: DimensionPresetCombination[];
@@ -93,6 +94,12 @@ export enum InsertPosition {
     INTO = 'into',
     BEFORE = 'before',
     AFTER = 'after'
+}
+
+export enum SelectionModeTypes {
+    SINGLE_SELECT = 'SINGLE_SELECT',
+    MULTIPLE_SELECT = 'MULTIPLE_SELECT',
+    RANGE_SELECT = 'RANGE_SELECT'
 }
 
 export interface ValidatorConfiguration {

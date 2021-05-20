@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 namespace Neos\Neos\Ui\Controller;
 
 /*
@@ -16,6 +18,7 @@ use Neos\ContentRepository\Domain\Service\ContextFactoryInterface;
 use Neos\Flow\Annotations as Flow;
 use Neos\Flow\Http\Component\SetHeaderComponent;
 use Neos\Flow\Mvc\Controller\ActionController;
+use Neos\Flow\Mvc\Exception\NoSuchArgumentException;
 use Neos\Flow\Mvc\Exception\StopActionException;
 use Neos\Flow\Mvc\Exception\UnsupportedRequestTypeException;
 use Neos\Flow\Mvc\Routing\Exception\MissingActionNameException;
@@ -29,23 +32,14 @@ use Neos\Neos\Domain\Repository\DomainRepository;
 use Neos\Neos\Domain\Repository\SiteRepository;
 use Neos\Neos\Domain\Service\ContentContext;
 use Neos\Neos\Service\BackendRedirectionService;
+use Neos\Neos\Service\LinkingService;
 use Neos\Neos\Service\UserService;
+use Neos\Neos\TypeConverter\NodeConverter;
 use Neos\Neos\Ui\Domain\Service\StyleAndJavascriptInclusionService;
 use Neos\Neos\Ui\Service\NodeClipboard;
 
 class BackendController extends ActionController
 {
-
-    /**
-     * @var string
-     */
-    protected $defaultViewObjectName = 'Neos\Neos\Ui\View\BackendFusionView';
-
-    /**
-     * @var FusionView
-     */
-    protected $view;
-
     /**
      * @Flow\Inject
      * @var UserService
@@ -112,6 +106,18 @@ class BackendController extends ActionController
      */
     protected $clipboard;
 
+    /**
+     * @Flow\Inject
+     * @var LinkingService
+     */
+    protected $linkingService;
+
+    /**
+     * Initializes the view before invoking an action method.
+     *
+     * @param ViewInterface $view The view to be initialized
+     * @return void
+     */
     public function initializeView(ViewInterface $view)
     {
         $view->setFusionPath('backend');
@@ -127,8 +133,9 @@ class BackendController extends ActionController
      * @throws UnsupportedRequestTypeException
      * @throws MissingActionNameException
      * @throws \ReflectionException
+     * @throws \Neos\Flow\Http\Exception
      */
-    public function indexAction(NodeInterface $node = null)
+    public function indexAction(NodeInterface $node = null): void
     {
         $user = $this->userService->getBackendUser();
 
@@ -145,33 +152,56 @@ class BackendController extends ActionController
         $this->view->assign('user', $user);
         $this->view->assign('documentNode', $node);
         $this->view->assign('site', $siteNode);
-        $this->view->assign('clipboardNode', $this->clipboard->getNodeContextPath());
+        $this->view->assign('clipboardNodes', $this->clipboard->getNodeContextPaths());
         $this->view->assign('clipboardMode', $this->clipboard->getMode());
         $this->view->assign('headScripts', $this->styleAndJavascriptInclusionService->getHeadScripts());
         $this->view->assign('headStylesheets', $this->styleAndJavascriptInclusionService->getHeadStylesheets());
         $this->view->assign('splashScreenPartial', $this->settings['splashScreen']['partial']);
         $this->view->assign('sitesForMenu', $this->menuHelper->buildSiteList($this->getControllerContext()));
+        $this->view->assign('modulesForMenu', $this->menuHelper->buildModuleList($this->getControllerContext()));
 
         $this->view->assign('interfaceLanguage', $this->userService->getInterfaceLanguage());
     }
 
     /**
-     * @param NodeInterface $node
-     * @throws StopActionException
+     * Allow invisible nodes to be redirected to
+     *
+     * @return void
+     * @throws NoSuchArgumentException
      */
-    public function redirectToAction(NodeInterface $node)
+    protected function initializeRedirectToAction(): void
+    {
+        // use this constant only if available (became available with patch level releases in Neos 4.0 and up)
+        if (defined(NodeConverter::class . '::INVISIBLE_CONTENT_SHOWN')) {
+            $this->arguments->getArgument('node')->getPropertyMappingConfiguration()->setTypeConverterOption(NodeConverter::class, NodeConverter::INVISIBLE_CONTENT_SHOWN, true);
+        }
+    }
+
+    /**
+     * @param NodeInterface $node
+     * @param string $presetBaseNodeType
+     * @throws MissingActionNameException
+     * @throws StopActionException
+     * @throws UnsupportedRequestTypeException
+     * @throws \Neos\Flow\Http\Exception
+     * @throws \Neos\Flow\Persistence\Exception\IllegalObjectTypeException
+     * @throws \Neos\Flow\Property\Exception
+     * @throws \Neos\Flow\Security\Exception
+     * @throws \Neos\Neos\Exception
+     */
+    public function redirectToAction(NodeInterface $node, string $presetBaseNodeType = null): void
     {
         $this->response->setComponentParameter(SetHeaderComponent::class, 'Cache-Control', [
             'no-cache',
             'no-store'
         ]);
-        $this->redirect('show', 'Frontend\Node', 'Neos.Neos', ['node' => $node]);
+        $this->redirectToUri($this->linkingService->createNodeUri($this->controllerContext, $node, null, null, false, ['presetBaseNodeType' => $presetBaseNodeType]));
     }
 
     /**
      * @return NodeInterface|null
      */
-    protected function getSiteNodeForLoggedInUser()
+    protected function getSiteNodeForLoggedInUser(): ?NodeInterface
     {
         $user = $this->userService->getBackendUser();
         if ($user === null) {
@@ -188,7 +218,7 @@ class BackendController extends ActionController
      * @return NodeInterface|null
      * @throws \ReflectionException
      */
-    protected function findNodeToEdit()
+    protected function findNodeToEdit(): ?NodeInterface
     {
         $siteNode = $this->getSiteNodeForLoggedInUser();
         $reflectionMethod = new \ReflectionMethod($this->backendRedirectionService, 'getLastVisitedNode');
@@ -208,7 +238,7 @@ class BackendController extends ActionController
      * @param string $workspaceName
      * @return ContentContext
      */
-    protected function createContext($workspaceName)
+    protected function createContext(string $workspaceName): ?ContentContext
     {
         $contextProperties = [
             'workspaceName' => $workspaceName,

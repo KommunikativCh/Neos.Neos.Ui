@@ -1,27 +1,32 @@
 import produce from 'immer';
 import {action as createAction, ActionType} from 'typesafe-actions';
 
-import {actionTypes as system, InitAction} from '@neos-project/neos-ui-redux-store/src/System';
-import {NodeContextPath} from '@neos-project/neos-ts-interfaces';
+import {actionTypes as system, InitAction, GlobalState} from '@neos-project/neos-ui-redux-store/src/System';
+import {NodeContextPath, SelectionModeTypes} from '@neos-project/neos-ts-interfaces';
 
 import * as selectors from './selectors';
+import {calculateNewFocusedNodes} from '../../CR/Nodes/helpers';
 
 export interface State extends Readonly<{
-    isFocused: NodeContextPath | null;
+    focused: NodeContextPath[];
     toggled: NodeContextPath[];
     hidden: NodeContextPath[];
     intermediate: NodeContextPath[];
     loading: NodeContextPath[];
     errors: NodeContextPath[];
+    query: string;
+    filterNodeType: string;
 }> {}
 
 export const defaultState: State = {
-    isFocused: null,
+    focused: [],
     toggled: [],
     hidden: [],
     intermediate: [],
     loading: [],
-    errors: []
+    errors: [],
+    query: '',
+    filterNodeType: ''
 };
 
 //
@@ -38,7 +43,7 @@ export enum actionTypes {
     SET_SEARCH_RESULT = '@neos/neos-ui/UI/PageTree/SET_SEARCH_RESULT'
 }
 
-const focus = (contextPath: NodeContextPath) => createAction(actionTypes.FOCUS, {contextPath});
+const focus = (contextPath: NodeContextPath, _: undefined, selectionMode: SelectionModeTypes = SelectionModeTypes.SINGLE_SELECT) => createAction(actionTypes.FOCUS, {contextPath, selectionMode});
 const toggle = (contextPath: NodeContextPath) => createAction(actionTypes.TOGGLE, {contextPath});
 const invalidate = (contextPath: NodeContextPath) => createAction(actionTypes.INVALIDATE, {contextPath});
 const requestChildren = (contextPath: NodeContextPath, {unCollapse = true, activate = false} = {}) =>  createAction(actionTypes.REQUEST_CHILDREN, {contextPath, opts: {unCollapse, activate}});
@@ -75,14 +80,19 @@ export type Action = ActionType<typeof actions>;
 //
 // Export the reducer
 //
-export const reducer = (state: State = defaultState, action: InitAction | Action) => produce(state, draft => {
+export const reducer = (state: State = defaultState, action: InitAction | Action, globalState: GlobalState) => produce(state, draft => {
     switch (action.type) {
         case system.INIT: {
-            draft.isFocused = action.payload.cr.nodes.documentNode || action.payload.cr.nodes.siteNode || null;
+            const contextPath = action.payload.cr.nodes.documentNode || action.payload.cr.nodes.siteNode;
+            draft.focused = contextPath ? [contextPath] : [];
             break;
         }
         case actionTypes.FOCUS: {
-            draft.isFocused = action.payload.contextPath;
+            const {contextPath, selectionMode} = action.payload;
+            const newFocusedNodes = calculateNewFocusedNodes(selectionMode, contextPath, draft.focused, globalState.cr.nodes.byContextPath);
+            if (newFocusedNodes) {
+                draft.focused = newFocusedNodes;
+            }
             break;
         }
         case actionTypes.TOGGLE: {
@@ -116,6 +126,12 @@ export const reducer = (state: State = defaultState, action: InitAction | Action
             draft.hidden = action.payload.hiddenContextPaths;
             draft.toggled = action.payload.toggledContextPaths;
             draft.intermediate = action.payload.intermediateContextPaths;
+            break;
+        }
+        case actionTypes.COMMENCE_SEARCH: {
+            // Store search arguments, to be used during tree reload
+            draft.query = action.payload.query;
+            draft.filterNodeType = action.payload.filterNodeType;
             break;
         }
     }

@@ -18,8 +18,8 @@ const config = {
     },
     zIndex: {
         secondaryToolbar: ['linkIconButtonFlyout'],
-        flashMessageContainer: '5',
-        loadingIndicatorContainer: '2',
+        flashMessageContainer: '6',
+        loadingIndicatorContainer: '5',
         secondaryInspector: ['context', 'iframe', 'close'],
         secondaryInspectorElevated: ['context', 'dropdownContents'],
         dialog: ['context'],
@@ -29,14 +29,14 @@ const config = {
         primaryToolbar: '4',
         checkboxInput: ['context'],
         dropdownContents: ['context'],
-        selectBoxContents: '3',
+        selectBoxContents: '4',
         notInlineEditableOverlay: ['context'],
         calendarFakeInputMirror: ['context'],
         rdtPicker: ['context'],
         sideBar: ['dropTargetBefore', 'dropTargetAfter'],
         wrapperDropdown: ['context'],
         unappliedChangesOverlay: ['context'],
-        nodeToolBar: '2147483647'
+        nodeToolBar: '2147483646'
     },
     fontSize: {
         base: '14px',

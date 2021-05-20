@@ -17,6 +17,7 @@ test(`should export actionTypes`, () => {
     expect(typeof (actionTypes.HIDE)).toBe('string');
     expect(typeof (actionTypes.SHOW)).toBe('string');
     expect(typeof (actionTypes.UPDATE_URI)).toBe('string');
+    expect(typeof (actionTypes.SET_INLINE_VALIDATION_ERRORS)).toBe('string');
 });
 
 test(`should export action creators`, () => {
@@ -34,6 +35,7 @@ test(`should export action creators`, () => {
     expect(typeof (actions.hide)).toBe('function');
     expect(typeof (actions.show)).toBe('function');
     expect(typeof (actions.updateUri)).toBe('function');
+    expect(typeof (actions.setInlineValidationErrors)).toBe('function');
 });
 
 test(`should export a reducer`, () => {
@@ -51,19 +53,21 @@ test(`The reducer should create a valid initial state`, () => {
         siteNode: 'siteNode',
         documentNode: 'documentNode',
         clipboard: null,
-        clipboardMode: null
+        clipboardMode: null,
+        inlineValidationErrors: {}
     };
     const expectedState = {
         byContextPath: {},
         siteNode: 'siteNode',
         documentNode: 'documentNode',
         focused: {
-            contextPath: null,
+            contextPaths: [],
             fusionPath: null
         },
-        toBeRemoved: null,
+        toBeRemoved: [],
         clipboard: null,
-        clipboardMode: null
+        clipboardMode: null,
+        inlineValidationErrors: {}
     };
     const nextState = reducer(undefined, {
         type: system.INIT,
@@ -110,6 +114,7 @@ test(`The "move" action should move things right.`, () => {
                 ]
             },
             'abc/abc@user-admin;language=en_US': {
+                parent: 'abc@user-admin;language=en_US',
                 contextPath: 'abc/abc@user-admin;language=en_US',
                 children: [
                     {
@@ -118,10 +123,12 @@ test(`The "move" action should move things right.`, () => {
                 ]
             },
             'abc/abc2@user-admin;language=en_US': {
+                parent: 'abc@user-admin;language=en_US',
                 contextPath: 'abc/abc@user-admin;language=en_US',
                 children: []
             },
             'abc/abc/abc@user-admin;language=en_US': {
+                parent: 'abc/abc@user-admin;language=en_US',
                 contextPath: 'abc/abc/abc@user-admin;language=en_US',
                 children: []
             }
@@ -141,19 +148,26 @@ test(`The "move" action should move things right.`, () => {
                         contextPath: 'abc/abc2@user-admin;language=en_US'
                     },
                     {
+                        // NOTE: the context path below is "wrong" (because its's the pre-move state), but this gets updated when the server roundtrip is completed.
+                        // we just move the node client-side for immediate user feedback
                         contextPath: 'abc/abc/abc@user-admin;language=en_US'
                     }
                 ]
             },
             'abc/abc@user-admin;language=en_US': {
+                parent: 'abc@user-admin;language=en_US',
                 contextPath: 'abc/abc@user-admin;language=en_US',
                 children: []
             },
             'abc/abc2@user-admin;language=en_US': {
+                parent: 'abc@user-admin;language=en_US',
                 contextPath: 'abc/abc@user-admin;language=en_US',
                 children: []
             },
             'abc/abc/abc@user-admin;language=en_US': {
+                // NOTE: the parent path below is "wrong" (because its's the pre-move state), but this gets updated when the server roundtrip is completed.
+                // we just move the node client-side for immediate user feedback
+                parent: 'abc/abc@user-admin;language=en_US',
                 contextPath: 'abc/abc/abc@user-admin;language=en_US',
                 children: []
             }
@@ -195,5 +209,22 @@ test(`The "updateUri" action should update uris.`, () => {
                 uri: 'https://domain/someUri2/someUri@user-admin;language=en_US'
             }
         }
+    });
+});
+
+test(`The "setInlineValidationErrors" action should set validation errors.`, () => {
+    const state = {
+        inlineValidationErrors: {}
+    };
+    const nextState = reducer(state, actions.setInlineValidationErrors('abc@user-admin;language=en_US', 'title', ['Some error']));
+    expect(nextState).toEqual({
+        inlineValidationErrors: {
+            'abc@user-admin;language=en_US title': ['Some error']
+        }
+    });
+
+    const nextState2 = reducer(nextState, actions.setInlineValidationErrors('abc@user-admin;language=en_US', 'title', null));
+    expect(nextState2).toEqual({
+        inlineValidationErrors: {}
     });
 });

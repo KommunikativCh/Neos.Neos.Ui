@@ -81,16 +81,17 @@ export default class LinkInput extends PureComponent {
     };
 
     getDataLoaderOptions() {
-        const contextForNodeLinking = $get('options.startingPoint', this.props) ?
-            Object.assign({}, this.props.contextForNodeLinking, {
-                contextNode: this.props.options.startingPoint
-            }) :
+        const options = {...this.props.options, ...this.props.linkingOptions};
+
+        const contextForNodeLinking = $get('startingPoint', options) ?
+            {...this.props.contextForNodeLinking, contextNode: options.startingPoint} :
             this.props.contextForNodeLinking;
+
         return {
-            nodeTypes: $get('options.nodeTypes', this.props) || ['Neos.Neos:Document'],
-            asset: $get('options.assets', this.props),
-            node: $get('options.nodes', this.props),
-            startingPoint: $get('options.startingPoint', this.props),
+            nodeTypes: $get('nodeTypes', options) || ['Neos.Neos:Document'],
+            asset: $get('assets', options),
+            node: $get('nodes', options),
+            startingPoint: $get('startingPoint', options),
             contextForNodeLinking
         };
     }
@@ -139,8 +140,8 @@ export default class LinkInput extends PureComponent {
             this.setState({
                 isLoading: false,
                 searchOptions: [{
-                    label: this.props.i18nRegistry.translate('Neos.Neos.Ui:Main:ckeditor__toolbar__link__formatAsHttp', 'Format as http link?'),
-                    loaderUri: `http://${searchTerm}`
+                    label: this.props.i18nRegistry.translate('Neos.Neos.Ui:Main:ckeditor__toolbar__link__formatAsHttp', 'Format as https link?'),
+                    loaderUri: `https://${searchTerm}`
                 }]
             });
         } else if (isEmail(searchTerm)) {

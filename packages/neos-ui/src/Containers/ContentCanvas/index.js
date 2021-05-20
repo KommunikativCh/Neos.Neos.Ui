@@ -4,6 +4,7 @@ import {connect} from 'react-redux';
 import mergeClassNames from 'classnames';
 import {$transform, $get} from 'plow-js';
 
+import {urlAppendParams} from '@neos-project/neos-ui-backend-connector/src/Endpoints/Helpers';
 import {actions, selectors} from '@neos-project/neos-ui-redux-store';
 import {neos} from '@neos-project/neos-ui-decorators';
 
@@ -15,9 +16,9 @@ import style from './style.css';
     isFringeLeft: $get('ui.leftSideBar.isHidden'),
     isFringeRight: $get('ui.rightSideBar.isHidden'),
     isFullScreen: $get('ui.fullScreen.isFullScreen'),
-    isEditModePanelHidden: $get('ui.editModePanel.isHidden'),
     backgroundColor: $get('ui.contentCanvas.backgroundColor'),
     src: $get('ui.contentCanvas.src'),
+    baseNodeType: $get('ui.pageTree.filterNodeType'),
     currentEditPreviewMode: selectors.UI.EditPreviewMode.currentEditPreviewMode
 }), {
     startLoading: actions.UI.ContentCanvas.startLoading,
@@ -33,7 +34,6 @@ export default class ContentCanvas extends PureComponent {
     static propTypes = {
         isFringeLeft: PropTypes.bool.isRequired,
         isFringeRight: PropTypes.bool.isRequired,
-        isEditModePanelHidden: PropTypes.bool.isRequired,
         isFullScreen: PropTypes.bool.isRequired,
         backgroundColor: PropTypes.string,
         src: PropTypes.string,
@@ -42,6 +42,7 @@ export default class ContentCanvas extends PureComponent {
         requestRegainControl: PropTypes.func.isRequired,
         requestLogin: PropTypes.func.isRequired,
         currentEditPreviewMode: PropTypes.string.isRequired,
+        baseNodeType: PropTypes.string,
 
         editPreviewModes: PropTypes.object.isRequired,
         guestFrameRegistry: PropTypes.object.isRequired
@@ -70,7 +71,6 @@ export default class ContentCanvas extends PureComponent {
             isFringeLeft,
             isFringeRight,
             isFullScreen,
-            isEditModePanelHidden,
             src,
             currentEditPreviewMode,
             editPreviewModes,
@@ -82,7 +82,6 @@ export default class ContentCanvas extends PureComponent {
             [style.contentCanvas]: true,
             [style['contentCanvas--isFringeLeft']]: isFringeLeft,
             [style['contentCanvas--isFringeRight']]: isFringeRight,
-            [style['contentCanvas--isMovedDown']]: !isEditModePanelHidden,
             [style['contentCanvas--isFullScreen']]: isFullScreen,
             [style['contentCanvas--isHidden']]: !isVisible
         });
@@ -127,7 +126,7 @@ export default class ContentCanvas extends PureComponent {
                         name="neos-content-main"
                         className={style.contentCanvas__contents}
                         style={canvasContentStyle}
-                        mountTarget="#neos-new-backend-container"
+                        mountTarget="#neos-backend-container"
                         contentDidUpdate={this.onFrameChange}
                         onLoad={this.handleFrameAccess}
                         onUnload={this.handelLoadStart}
@@ -171,6 +170,19 @@ export default class ContentCanvas extends PureComponent {
                     requestLogin();
                     return;
                 }
+
+                // Append presetBaseNodeType param to all internal links
+                const internalLinks = iframe.contentWindow.document.querySelectorAll('a[href*="@user-"]');
+                internalLinks.forEach(link => {
+                    link.addEventListener('click', () => {
+                        if (this.props.baseNodeType) {
+                            link.setAttribute(
+                                'href',
+                                urlAppendParams(link.href, {presetBaseNodeType: this.props.baseNodeType})
+                            );
+                        }
+                    });
+                });
 
                 this.setState({
                     isVisible: true,

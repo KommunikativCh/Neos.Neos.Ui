@@ -1,16 +1,22 @@
+
 {
     "name": "neos/test-distribution",
-    "description": "Neos test distribution",
+    "description": "Neos test distribution. Change this number if you need to break CircleCI's cache: 14",
     "config": {
         "vendor-dir": "Packages/Libraries",
         "bin-dir": "bin"
     },
+    "minimum-stability": "dev",
     "require": {
-        "neos/neos": "^4.2",
-        "neos/neos-ui": "*",
-        "neos/fusion-afx": "^1.0",
-        "neos/test-site": "@dev",
-        "neos/test-nodetypes": "@dev"
+      "neos/neos-ui": "dev-master",
+      "neos/fusion-afx": "*",
+      "neos/test-site": "@dev",
+      "neos/test-nodetypes": "@dev"
+    },
+    "require-dev": {
+      "neos/buildessentials": "@dev",
+      "mikey179/vfsstream": "^1.6",
+      "phpunit/phpunit": "^8.1"
     },
     "repositories": {
         "distribution": {

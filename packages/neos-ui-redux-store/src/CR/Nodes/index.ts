@@ -1,12 +1,20 @@
 import produce from 'immer';
-import {mergeDeepRight} from 'ramda';
+import {defaultsDeep} from 'lodash';
 import {action as createAction, ActionType} from 'typesafe-actions';
 import {actionTypes as system, InitAction} from '@neos-project/neos-ui-redux-store/src/System';
 
 import * as selectors from './selectors';
-import {parentNodeContextPath, getNodeOrThrow} from './helpers';
+import {calculateNewFocusedNodes, getNodeOrThrow} from './helpers';
 
-import {FusionPath, NodeContextPath, InsertPosition, NodeMap, ClipboardMode, NodeTypeName} from '@neos-project/neos-ts-interfaces';
+import {FusionPath, NodeContextPath, InsertPosition, NodeMap, ClipboardMode, SelectionModeTypes, NodeTypeName} from '@neos-project/neos-ts-interfaces';
+
+interface InlineValidationErrors {
+    [itemProp: string]: any;
+}
+
+interface ErrorsMap {
+    [itemProp: string]: any;
+}
 
 //
 // Export the subreducer state shape interface
@@ -16,12 +24,13 @@ export interface State extends Readonly<{
     siteNode: NodeContextPath | null;
     documentNode: NodeContextPath | null;
     focused: {
-        contextPath: NodeContextPath | null;
         fusionPath: FusionPath | null;
+        contextPaths: NodeContextPath[];
     },
-    toBeRemoved: NodeContextPath | null;
-    clipboard: NodeContextPath | null;
+    toBeRemoved: NodeContextPath[];
+    clipboard: NodeContextPath[];
     clipboardMode: ClipboardMode | null;
+    inlineValidationErrors: InlineValidationErrors
 }> {}
 
 export const defaultState: State = {
@@ -29,12 +38,13 @@ export const defaultState: State = {
     siteNode: null,
     documentNode: null,
     focused: {
-        contextPath: null,
+        contextPaths: [],
         fusionPath: null
     },
-    toBeRemoved: null,
-    clipboard: null,
-    clipboardMode: null
+    toBeRemoved: [],
+    clipboard: [],
+    clipboardMode: null,
+    inlineValidationErrors: {}
 };
 
 // An object describing a node property change
@@ -55,6 +65,7 @@ export enum actionTypes {
     UNFOCUS = '@neos/neos-ui/CR/Nodes/UNFOCUS',
     COMMENCE_CREATION = '@neos/neos-ui/CR/Nodes/COMMENCE_CREATION',
     COMMENCE_REMOVAL = '@neos/neos-ui/CR/Nodes/COMMENCE_REMOVAL',
+    COMMENCE_REMOVAL_MULTIPLE = '@neos/neos-ui/CR/Nodes/COMMENCE_REMOVAL_MULTIPLE',
     REMOVAL_ABORTED = '@neos/neos-ui/CR/Nodes/REMOVAL_ABORTED',
     REMOVAL_CONFIRMED = '@neos/neos-ui/CR/Nodes/REMOVAL_CONFIRMED',
     REMOVE = '@neos/neos-ui/CR/Nodes/REMOVE',
@@ -62,13 +73,20 @@ export enum actionTypes {
     SET_STATE = '@neos/neos-ui/CR/Nodes/SET_STATE',
     RELOAD_STATE = '@neos/neos-ui/CR/Nodes/RELOAD_STATE',
     COPY = '@neos/neos-ui/CR/Nodes/COPY',
+    COPY_MULTIPLE = '@neos/neos-ui/CR/Nodes/COPY_MULTIPLE',
     CUT = '@neos/neos-ui/CR/Nodes/CUT',
+    CUT_MULTIPLE = '@neos/neos-ui/CR/Nodes/CUT_MULTIPLE',
     MOVE = '@neos/neos-ui/CR/Nodes/MOVE',
+    MOVE_MULTIPLE = '@neos/neos-ui/CR/Nodes/MOVE_MULTIPLE',
     PASTE = '@neos/neos-ui/CR/Nodes/PASTE',
     COMMIT_PASTE = '@neos/neos-ui/CR/Nodes/COMMIT_PASTE',
     HIDE = '@neos/neos-ui/CR/Nodes/HIDE',
+    HIDE_MULTIPLE = '@neos/neos-ui/CR/Nodes/HIDE_MULTIPLE',
     SHOW = '@neos/neos-ui/CR/Nodes/SHOW',
-    UPDATE_URI = '@neos/neos-ui/CR/Nodes/UPDATE_URI'
+    SHOW_MULTIPLE = '@neos/neos-ui/CR/Nodes/SHOW_MULTIPLE',
+    UPDATE_PATH = '@neos/neos-ui/CR/Nodes/UPDATE_PATH',
+    UPDATE_URI = '@neos/neos-ui/CR/Nodes/UPDATE_URI',
+    SET_INLINE_VALIDATION_ERRORS = '@neos/neos-ui/CR/Nodes/SET_INLINE_VALIDATION_ERRORS'
 }
 
 export type Action = ActionType<typeof actions>;
@@ -101,7 +119,7 @@ const changeProperty = (propertyChanges: ReadonlyArray<PropertyChange>) => creat
  * @param {String} fusionPath The fusion path of the focused node, needed for out-of-band-rendering, e.g. when
  *                            adding new nodes
  */
-const focus = (contextPath: NodeContextPath, fusionPath: FusionPath) => createAction(actionTypes.FOCUS, {contextPath, fusionPath});
+const focus = (contextPath: NodeContextPath, fusionPath: FusionPath, selectionMode: SelectionModeTypes = SelectionModeTypes.SINGLE_SELECT) => createAction(actionTypes.FOCUS, {contextPath, fusionPath, selectionMode});
 
 /**
  * Un-marks all nodes as not focused.
@@ -114,6 +132,8 @@ const unFocus = () => createAction(actionTypes.UNFOCUS);
  * @param {String} contextPath The context path of the node to be removed
  */
 const commenceRemoval = (contextPath: NodeContextPath) => createAction(actionTypes.COMMENCE_REMOVAL, contextPath);
+
+const commenceRemovalMultiple = (contextPaths: NodeContextPath[]) => createAction(actionTypes.COMMENCE_REMOVAL_MULTIPLE, contextPaths);
 
 /**
  * Start node creation workflow
@@ -151,6 +171,11 @@ const remove = (contextPath: NodeContextPath) => createAction(actionTypes.REMOVE
  * Set the document node and optionally site node
  */
 const setDocumentNode = (documentNode: NodeContextPath, siteNode?: NodeContextPath) => createAction(actionTypes.SET_DOCUMENT_NODE, {documentNode, siteNode});
+
+/**
+ * Set inline validation errors for property
+ */
+const setInlineValidationErrors = (node: NodeContextPath, propertyName: string, errors: ErrorsMap | null) => createAction(actionTypes.SET_INLINE_VALIDATION_ERRORS, {node, propertyName, errors});
 
 /**
  * Set CR state on page load or after dimensions or workspaces switch
@@ -205,12 +230,16 @@ const adoptDataToHost = <T>(object: T): T => JSON.parse(JSON.stringify(object));
  */
 const copy = (contextPath: NodeContextPath) => createAction(actionTypes.COPY, contextPath);
 
+const copyMultiple = (contextPaths: NodeContextPath[]) => createAction(actionTypes.COPY_MULTIPLE, contextPaths);
+
 /**
  * Mark a node for cut on paste
  *
  * @param {String} contextPath The context path of the node to be cut
  */
 const cut = (contextPath: NodeContextPath) => createAction(actionTypes.CUT, contextPath);
+
+const cutMultiple = (contextPaths: NodeContextPath[]) => createAction(actionTypes.CUT_MULTIPLE, contextPaths);
 
 /**
  * Move a node
@@ -224,6 +253,12 @@ const move = (
     targetNode: NodeContextPath,
     position: InsertPosition
 ) => createAction(actionTypes.MOVE, {nodeToBeMoved, targetNode, position});
+
+const moveMultiple = (
+    nodesToBeMoved: NodeContextPath[],
+    targetNode: NodeContextPath,
+    position: InsertPosition
+) => createAction(actionTypes.MOVE_MULTIPLE, {nodesToBeMoved, targetNode, position});
 
 /**
  * Paste the contents of the node clipboard
@@ -246,12 +281,16 @@ const commitPaste = (clipboardMode: ClipboardMode) => createAction(actionTypes.C
  */
 const hide = (contextPath: NodeContextPath) => createAction(actionTypes.HIDE, contextPath);
 
+const hideMultiple = (contextPaths: NodeContextPath[]) => createAction(actionTypes.HIDE_MULTIPLE, contextPaths);
+
 /**
  * Show the given node
  *
  * @param {String} contextPath The context path of the node to be shown
  */
 const show = (contextPath: NodeContextPath) => createAction(actionTypes.SHOW, contextPath);
+
+const showMultiple = (contextPaths: NodeContextPath[]) => createAction(actionTypes.SHOW_MULTIPLE, contextPaths);
 
 /**
  * Update uris of all affected nodes after uriPathSegment of a node has changed
@@ -261,6 +300,15 @@ const show = (contextPath: NodeContextPath) => createAction(actionTypes.SHOW, co
  * @param {String} newUriFragment
  */
 const updateUri = (oldUriFragment: string, newUriFragment: string) => createAction(actionTypes.UPDATE_URI, {oldUriFragment, newUriFragment});
+
+/**
+ * Update context path of all affected nodes after a node has been moved
+ * Must update the node itself and all of its descendants
+ *
+ * @param {String} oldContextPath
+ * @param {String} newContextPath
+ */
+const updatePath = (oldContextPath: string, newContextPath: string) => createAction(actionTypes.UPDATE_PATH, {oldContextPath, newContextPath});
 
 //
 // Export the actions
@@ -273,6 +321,7 @@ export const actions = {
     unFocus,
     commenceCreation,
     commenceRemoval,
+    commenceRemovalMultiple,
     abortRemoval,
     confirmRemoval,
     remove,
@@ -280,13 +329,63 @@ export const actions = {
     setState,
     reloadState,
     copy,
+    copyMultiple,
     cut,
+    cutMultiple,
     move,
+    moveMultiple,
     paste,
     commitPaste,
     hide,
+    hideMultiple,
     show,
-    updateUri
+    showMultiple,
+    updatePath,
+    updateUri,
+    setInlineValidationErrors
+};
+
+const moveNodeInState = (
+    sourceNodeContextPath: string,
+    targetNodeContextPath: string,
+    position: string,
+    draft: State
+) => {
+    const sourceNode = getNodeOrThrow(draft.byContextPath, sourceNodeContextPath);
+    const targetNode = getNodeOrThrow(draft.byContextPath, targetNodeContextPath);
+    let baseNode;
+    if (position === 'into') {
+        baseNode = targetNode;
+    } else {
+        baseNode = getNodeOrThrow(draft.byContextPath, targetNode.parent);
+    }
+
+    const sourceNodeParent = getNodeOrThrow(draft.byContextPath, sourceNode.parent);
+
+    const originalSourceChildren = sourceNodeParent.children;
+    const sourceIndex = originalSourceChildren.findIndex(child => child.contextPath === sourceNodeContextPath);
+    const childRepresentationOfSourceNode = originalSourceChildren[sourceIndex];
+
+    const processedChildren = baseNode.children;
+
+    if (sourceNodeParent === baseNode) {
+        // If moving into the same parent, delete source node from it
+        processedChildren.splice(sourceIndex, 1);
+    } else {
+        // Else delete the source node from its parent
+        originalSourceChildren.splice(sourceIndex, 1);
+        sourceNodeParent.children = originalSourceChildren;
+    }
+
+    // Add source node to the children of the base node, at the right position
+    if (position === 'into') {
+        processedChildren.push(childRepresentationOfSourceNode);
+    } else {
+        const targetIndex = processedChildren.findIndex(child => child.contextPath === targetNodeContextPath);
+        const insertIndex = position === 'before' ? targetIndex : targetIndex + 1;
+        processedChildren.splice(insertIndex, 0, childRepresentationOfSourceNode);
+    }
+    baseNode.children = processedChildren;
 };
 
 //
@@ -319,48 +418,14 @@ export const reducer = (state: State = defaultState, action: InitAction | Action
         }
         case actionTypes.MOVE: {
             const {nodeToBeMoved: sourceNodeContextPath, targetNode: targetNodeContextPath, position} = action.payload;
-
-            let baseNodeContextPath;
-            if (position === 'into') {
-                baseNodeContextPath = targetNodeContextPath;
-            } else {
-                baseNodeContextPath = parentNodeContextPath(targetNodeContextPath);
-                if (baseNodeContextPath === null) {
-                    throw new Error(`Target node "{targetNodeContextPath}" doesn't have a parent, yet you are trying to move a node next to it`);
-                }
-            }
-
-            const sourceNodeParentContextPath = parentNodeContextPath(sourceNodeContextPath);
-            if (sourceNodeParentContextPath === null) {
-                throw new Error(`The source node "{sourceNodeParentContextPath}" doesn't have a parent, you can't move it`);
-            }
-            const baseNode = getNodeOrThrow(draft.byContextPath, baseNodeContextPath);
-            const sourceNodeParent = getNodeOrThrow(draft.byContextPath, sourceNodeParentContextPath);
-
-            const originalSourceChildren = sourceNodeParent.children;
-            const sourceIndex = originalSourceChildren.findIndex(child => child.contextPath === sourceNodeContextPath);
-            const childRepresentationOfSourceNode = originalSourceChildren[sourceIndex];
-
-            const processedChildren = baseNode.children;
-
-            if (sourceNodeParentContextPath === baseNodeContextPath) {
-                // If moving into the same parent, delete source node from it
-                processedChildren.splice(sourceIndex, 1);
-            } else {
-                // Else delete the source node from its parent
-                originalSourceChildren.splice(sourceIndex, 1);
-                sourceNodeParent.children = originalSourceChildren;
-            }
-
-            // Add source node to the children of the base node, at the right position
-            if (position === 'into') {
-                processedChildren.push(childRepresentationOfSourceNode);
-            } else {
-                const targetIndex = processedChildren.findIndex(child => child.contextPath === targetNodeContextPath);
-                const insertIndex = position === 'before' ? targetIndex : targetIndex + 1;
-                processedChildren.splice(insertIndex, 0, childRepresentationOfSourceNode);
-            }
-            baseNode.children = processedChildren;
+            moveNodeInState(sourceNodeContextPath, targetNodeContextPath, position, draft);
+            break;
+        }
+        case actionTypes.MOVE_MULTIPLE: {
+            const {nodesToBeMoved, targetNode: targetNodeContextPath, position} = action.payload;
+            nodesToBeMoved.forEach(sourceNodeContextPath => {
+                moveNodeInState(sourceNodeContextPath, targetNodeContextPath, position, draft);
+            });
             break;
         }
         case actionTypes.MERGE: {
@@ -373,7 +438,7 @@ export const reducer = (state: State = defaultState, action: InitAction | Action
                 if (!newNode) {
                     throw new Error('This error should never be thrown, it\'s a way to fool TypeScript');
                 }
-                const mergedNode = mergeDeepRight(draft.byContextPath[contextPath], newNode);
+                const mergedNode = defaultsDeep({}, newNode, draft.byContextPath[contextPath]);
                 // Force overwrite of children
                 if (newNode.children !== undefined) {
                     mergedNode.children = newNode.children;
@@ -387,30 +452,74 @@ export const reducer = (state: State = defaultState, action: InitAction | Action
             break;
         }
         case actionTypes.FOCUS: {
-            const {contextPath, fusionPath} = action.payload;
-            draft.focused.contextPath = contextPath;
+            const {contextPath, fusionPath, selectionMode} = action.payload;
             draft.focused.fusionPath = fusionPath;
+            const newFocusedNodes = calculateNewFocusedNodes(selectionMode, contextPath, draft.focused.contextPaths, draft.byContextPath);
+            if (newFocusedNodes) {
+                draft.focused.contextPaths = newFocusedNodes;
+            }
             break;
         }
         case actionTypes.UNFOCUS: {
-            draft.focused.contextPath = null;
             draft.focused.fusionPath = null;
+            draft.focused.contextPaths = [];
             break;
         }
         case actionTypes.COMMENCE_REMOVAL: {
+            draft.toBeRemoved = [action.payload];
+            break;
+        }
+        case actionTypes.COMMENCE_REMOVAL_MULTIPLE: {
             draft.toBeRemoved = action.payload;
             break;
         }
         case actionTypes.REMOVAL_ABORTED: {
-            draft.toBeRemoved = null;
+            draft.toBeRemoved = [];
             break;
         }
         case actionTypes.REMOVAL_CONFIRMED: {
-            draft.toBeRemoved = null;
+            draft.toBeRemoved = [];
             break;
         }
         case actionTypes.REMOVE: {
             delete draft.byContextPath[action.payload];
+            break;
+        }
+        case actionTypes.UPDATE_PATH: {
+            const {oldContextPath, newContextPath} = action.payload;
+            // This action will only be called by the old CR therefore we can expect the '@' sign
+            const [oldPath] = oldContextPath.split('@');
+            const [newPath] = newContextPath.split('@');
+            const encodedOldPath = encodeURIComponent(oldPath);
+            const encodedNewPath = encodeURIComponent(newPath);
+
+            // Update the context path for stored descendant of the moved node including the node itself
+            Object.keys(draft.byContextPath).forEach(contextPath => {
+                // Skip nodes that don't match the old path exactly or a descendant path
+                if (!contextPath.startsWith(oldPath + '/')
+                    && contextPath.split('@')[0] !== oldPath) {
+                    return;
+                }
+
+                const node = draft.byContextPath[contextPath];
+                if (!node) {
+                    return;
+                }
+
+                const updatedContextPath = contextPath.replace(oldPath, newPath);
+                node.contextPath = updatedContextPath;
+
+                // Update also the preview uri for document nodes stored in the node data
+                if (node.uri) {
+                    node.uri = node.uri.replace(encodedOldPath, encodedNewPath);
+                }
+
+                node.children.forEach(child => {
+                    child.contextPath = child.contextPath.replace(oldPath, newPath);
+                });
+
+                delete Object.assign(draft.byContextPath, {[updatedContextPath]: node })[contextPath];
+            });
             break;
         }
         case actionTypes.SET_DOCUMENT_NODE: {
@@ -423,8 +532,8 @@ export const reducer = (state: State = defaultState, action: InitAction | Action
                 // to different Document nodes and having a (content) node selected previously, the Inspector
                 // does not properly refresh. We just need to ensure that everytime we switch pages, we
                 // reset the focused (content) node of the page.
-                draft.focused.contextPath = null;
                 draft.focused.fusionPath = null;
+                draft.focused.contextPaths = [];
             }
             break;
         }
@@ -432,38 +541,64 @@ export const reducer = (state: State = defaultState, action: InitAction | Action
             const {siteNodeContextPath, documentNodeContextPath, nodes, merge} = action.payload;
             draft.siteNode = siteNodeContextPath;
             draft.documentNode = documentNodeContextPath;
-            draft.focused.contextPath = null;
             draft.focused.fusionPath = null;
+            draft.focused.contextPaths = [];
             if (nodes) {
-                draft.byContextPath = merge ? mergeDeepRight(draft.byContextPath, nodes) : nodes;
+                draft.byContextPath = merge ? defaultsDeep({}, nodes, draft.byContextPath) : nodes;
             }
             break;
         }
         case actionTypes.COPY: {
+            draft.clipboard = [action.payload];
+            draft.clipboardMode = ClipboardMode.COPY;
+            break;
+        }
+        case actionTypes.COPY_MULTIPLE: {
             draft.clipboard = action.payload;
             draft.clipboardMode = ClipboardMode.COPY;
             break;
         }
         case actionTypes.CUT: {
+            draft.clipboard = [action.payload];
+            draft.clipboardMode = ClipboardMode.MOVE;
+            break;
+        }
+        case actionTypes.CUT_MULTIPLE: {
             draft.clipboard = action.payload;
             draft.clipboardMode = ClipboardMode.MOVE;
             break;
         }
         case actionTypes.COMMIT_PASTE: {
             if (action.payload === ClipboardMode.MOVE) {
-                draft.clipboard = null;
+                draft.clipboard = [];
                 draft.clipboardMode = null;
             }
             break;
         }
         case actionTypes.HIDE: {
             const node = getNodeOrThrow(draft.byContextPath, action.payload);
-            node.properties.hidden = true;
+            node.properties._hidden = true;
+            break;
+        }
+        case actionTypes.HIDE_MULTIPLE: {
+            const contextPaths = action.payload;
+            contextPaths.forEach(contextPath => {
+                const node = getNodeOrThrow(draft.byContextPath, contextPath);
+                node.properties._hidden = true;
+            });
             break;
         }
         case actionTypes.SHOW: {
             const node = getNodeOrThrow(draft.byContextPath, action.payload);
-            node.properties.hidden = false;
+            node.properties._hidden = false;
+            break;
+        }
+        case actionTypes.SHOW_MULTIPLE: {
+            const contextPaths = action.payload;
+            contextPaths.forEach(contextPath => {
+                const node = getNodeOrThrow(draft.byContextPath, contextPath);
+                node.properties._hidden = false;
+            });
             break;
         }
         case actionTypes.UPDATE_URI: {
@@ -480,13 +615,22 @@ export const reducer = (state: State = defaultState, action: InitAction | Action
                     (nodeUri.includes(oldUriFragment + '/') || nodeUri.includes(oldUriFragment + '@'))
                 ) {
                     const newNodeUri = nodeUri
-                            // Node with changes uriPathSegment
-                            .replace(oldUriFragment + '@', newUriFragment + '@')
-                            // Descendant of a node with changed uriPathSegment
-                            .replace(oldUriFragment + '/', newUriFragment + '/');
+                        // Node with changes uriPathSegment
+                        .replace(oldUriFragment + '@', newUriFragment + '@')
+                        // Descendant of a node with changed uriPathSegment
+                        .replace(oldUriFragment + '/', newUriFragment + '/');
                     node.uri = newNodeUri;
                 }
             });
+            break;
+        }
+        case actionTypes.SET_INLINE_VALIDATION_ERRORS: {
+            const {node, propertyName, errors} = action.payload;
+            if (errors) {
+                draft.inlineValidationErrors[`${node} ${propertyName}`] = errors;
+            } else {
+                delete draft.inlineValidationErrors[`${node} ${propertyName}`];
+            }
             break;
         }
     }

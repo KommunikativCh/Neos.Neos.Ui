@@ -15,6 +15,7 @@ import {
 } from './dom';
 
 import style from './style.css';
+import {SelectionModeTypes} from '@neos-project/neos-ts-interfaces';
 
 //
 // Get all parent elements of the event target.
@@ -43,6 +44,15 @@ export default ({globalRegistry, store}) => function * initializeGuestFrame() {
     const inlineEditorRegistry = globalRegistry.get('inlineEditors');
     const guestFrameWindow = getGuestFrameWindow();
     const documentInformation = Object.assign({}, guestFrameWindow['@Neos.Neos.Ui:DocumentInformation']);
+
+    // The user may have navigated by clicking an inline link - that's why we need to update the contentCanvas URL to be in sync with the shown content.
+    // We need to set the src to the actual src of the iframe, and not retrive it from documentInformation, as it may differ, e.g. contain additional arguments.
+    yield put(actions.UI.ContentCanvas.setSrc(guestFrameWindow.document.location.href));
+
+    // If we have no document information, guest frame intialziation ends here
+    if (Object.entries(documentInformation).length === 0) {
+        return;
+    }
 
     const nodes = Object.assign({}, guestFrameWindow['@Neos.Neos.Ui:Nodes'], {
         [documentInformation.metaData.documentNode]: documentInformation.metaData.documentNodeSerialization
@@ -92,7 +102,7 @@ export default ({globalRegistry, store}) => function * initializeGuestFrame() {
             const contextPath = selectedDomNode.getAttribute('data-__neos-node-contextpath');
             const fusionPath = selectedDomNode.getAttribute('data-__neos-fusion-path');
             const state = store.getState();
-            const focusedNodeContextPath = $get('cr.nodes.focused.contextPath', state);
+            const focusedNodeContextPath = selectors.CR.Nodes.focusedNodePathSelector(state);
             if (!isInsideEditableProperty) {
                 store.dispatch(actions.UI.ContentCanvas.setCurrentlyEditedPropertyName(''));
             }
@@ -153,6 +163,10 @@ export default ({globalRegistry, store}) => function * initializeGuestFrame() {
     }
 
     yield takeEvery(actionTypes.CR.Nodes.FOCUS, function * (action) {
+        // Don't focus node in contentcanvas when multiselecting
+        if (action.payload.selectionMode !== SelectionModeTypes.SINGLE_SELECT) {
+            return;
+        }
         const oldNode = findInGuestFrame(`.${style['markActiveNodeAsFocused--focusedNode']}`);
 
         if (oldNode) {

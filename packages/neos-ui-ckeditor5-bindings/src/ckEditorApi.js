@@ -1,5 +1,6 @@
 import debounce from 'lodash.debounce';
 import DecoupledEditor from '@ckeditor/ckeditor5-editor-decoupled/src/decouplededitor';
+import {actions} from '@neos-project/neos-ui-redux-store';
 
 // We remove opening and closing span tags that are produced by the inlineMode plugin
 const cleanupContentBeforeCommit = content => {
@@ -47,8 +48,8 @@ export const bootstrap = _editorConfig => {
     editorConfig = _editorConfig;
 };
 
-export const createEditor = options => {
-    const {propertyDomNode, propertyName, contextPath, editorOptions, globalRegistry, userPreferences, persistChange} = options;
+export const createEditor = store => options => {
+    const {propertyDomNode, propertyName, editorOptions, globalRegistry, userPreferences, onChange} = options;
     const ckEditorConfig = editorConfig.configRegistry.getCkeditorConfig({
         editorOptions,
         userPreferences,
@@ -66,19 +67,16 @@ export const createEditor = options => {
                 }
             });
 
+            editor.keystrokes.set('Ctrl+K', (_, cancel) => {
+                store.dispatch(actions.UI.ContentCanvas.toggleLinkEditor());
+                cancel();
+            });
+
             // We attach all options for this editor to the editor DOM node, so it would be easier to access them from CKE plugins
             editor.neos = options;
 
             editor.model.document.on('change', () => handleUserInteractionCallback());
-            editor.model.document.on('change:data', debounce(() => persistChange({
-                type: 'Neos.Neos.Ui:Property',
-                subject: contextPath,
-                payload: {
-                    propertyName,
-                    value: cleanupContentBeforeCommit(editor.getData()),
-                    isInline: true
-                }
-            }), 500, {maxWait: 5000}));
+            editor.model.document.on('change:data', debounce(() => onChange(cleanupContentBeforeCommit(editor.getData())), 500, {maxWait: 5000}));
         }).catch(e => console.error(e));
 };
 

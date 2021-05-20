@@ -4,7 +4,7 @@ import {$get, $contains} from 'plow-js';
 import {actionTypes, actions, selectors} from '@neos-project/neos-ui-redux-store';
 import backend from '@neos-project/neos-ui-backend-connector';
 
-import {parentNodeContextPath, isNodeCollapsed} from '@neos-project/neos-ui-redux-store/src/CR/Nodes/helpers';
+import {isNodeCollapsed} from '@neos-project/neos-ui-redux-store/src/CR/Nodes/helpers';
 
 export function * watchToggle({globalRegistry}) {
     const nodeTypesRegistry = globalRegistry.get('@neos-project/neos-ui-contentrepository');
@@ -96,7 +96,10 @@ export function * watchCurrentDocument({configuration}) {
         const {loadingDepth} = configuration.nodeTree;
         let hasLoadedNodes = false;
         while (parentContextPath !== siteNodeContextPath) {
-            parentContextPath = parentNodeContextPath(parentContextPath);
+            const getParentNodeByContextPathSelector = selectors.CR.Nodes.makeGetNodeByContextPathSelector(parentContextPath);
+            const parentNode = yield select(getParentNodeByContextPathSelector);
+
+            parentContextPath = parentNode.parent;
             const getNodeByContextPathSelector = selectors.CR.Nodes.makeGetNodeByContextPathSelector(parentContextPath);
             let node = yield select(getNodeByContextPathSelector);
 
@@ -192,13 +195,15 @@ export function * watchSearch({configuration}) {
                 if (node.intermediate) {
                     // We reset all toggled state before search, so we can assume "isToggled == false" here
                     const isToggled = false;
-                    const isCollapsed = isNodeCollapsed(node, isToggled, siteNode, loadingDepth);
-                    if (isCollapsed) {
-                        toggledContextPaths.push(contextPath);
-                    }
+                    if (node && siteNode) {
+                        const isCollapsed = isNodeCollapsed(node, isToggled, siteNode, loadingDepth);
+                        if (isCollapsed) {
+                            toggledContextPaths.push(contextPath);
+                        }
 
-                    if (!node.matched) {
-                        intermediateContextPaths.push(contextPath);
+                        if (!node.matched) {
+                            intermediateContextPaths.push(contextPath);
+                        }
                     }
                 }
             });

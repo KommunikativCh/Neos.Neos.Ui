@@ -5,7 +5,7 @@ import CloseOnEscape from 'react-close-on-escape';
 import {Portal} from 'react-portal';
 
 type DialogType = 'success' | 'warn' | 'error';
-type DialogStyle = 'wide' | 'narrow';
+type DialogStyle = 'wide' | 'jumbo' | 'narrow';
 
 interface DialogTheme {
     readonly 'dialog': string;
@@ -16,6 +16,7 @@ interface DialogTheme {
     readonly 'dialog__closeBtn': string;
     readonly 'dialog__actions': string;
     readonly 'dialog--wide': string;
+    readonly 'dialog--jumbo': string;
     readonly 'dialog--narrow': string;
     readonly 'dialog--success': string;
     readonly 'dialog--warn': string;
@@ -57,6 +58,11 @@ export interface DialogProps {
      * An Array of nodes(e.g. Action Buttons) which are placed at the bottom of the Dialog.
      */
     readonly actions: ReadonlyArray<ReactNode>;
+
+    /**
+     * This prop controls the focus state of the Dialog.
+     */
+    readonly autoFocus: boolean;
 
     /**
      * An optional `className` to attach to the wrapper.
@@ -129,8 +135,8 @@ export class DialogWithoutEscape extends PureComponent<DialogProps> {
 
     public readonly componentDidMount = (): void => {
         document.addEventListener('keydown', (event : KeyboardEvent) => this.handleKeyPress(event));
-
-        if (this.ref) {
+        const {autoFocus} = this.props;
+        if (this.ref && autoFocus) {
             this.ref.focus();
         }
     }
@@ -174,6 +180,7 @@ class DialogWithEscape extends PureComponent<DialogProps> {
             theme.dialog,
             {
                 [theme['dialog--wide']]: style === 'wide',
+                [theme['dialog--jumbo']]: style === 'jumbo',
                 [theme['dialog--narrow']]: style === 'narrow',
             },
             {

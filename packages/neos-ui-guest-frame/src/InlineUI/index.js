@@ -8,6 +8,8 @@ import {neos} from '@neos-project/neos-ui-decorators';
 import NodeToolbar from './NodeToolbar/index';
 
 import style from './style.css';
+import InlineValidationErrors from './InlineValidationErrors/index';
+import {isEqualSet} from '@neos-project/utils-helpers';
 
 @neos(globalRegistry => ({
     nodeTypesRegistry: globalRegistry.get('@neos-project/neos-ui-contentrepository')
@@ -15,10 +17,11 @@ import style from './style.css';
 @connect($transform({
     focused: $get('cr.nodes.focused'),
     focusedNode: selectors.CR.Nodes.focusedSelector,
+    focusedNodesContextPaths: selectors.CR.Nodes.focusedNodePathsSelector,
     shouldScrollIntoView: selectors.UI.ContentCanvas.shouldScrollIntoView,
     destructiveOperationsAreDisabled: selectors.CR.Nodes.destructiveOperationsAreDisabledSelector,
     clipboardMode: $get('cr.nodes.clipboardMode'),
-    clipboardNodeContextPath: selectors.CR.Nodes.clipboardNodeContextPathSelector
+    clipboardNodesContextPaths: selectors.CR.Nodes.clipboardNodesContextPathsSelector
 }), {
     requestScrollIntoView: actions.UI.ContentCanvas.requestScrollIntoView
 })
@@ -31,27 +34,24 @@ export default class InlineUI extends PureComponent {
         requestScrollIntoView: PropTypes.func.isRequired,
         shouldScrollIntoView: PropTypes.bool.isRequired,
         clipboardMode: PropTypes.string,
-        clipboardNodeContextPath: PropTypes.string
+        clipboardNodesContextPaths: PropTypes.array
     };
 
     render() {
         const {focused} = this.props;
-        const focusedNodeContextPath = focused.contextPath;
-        const {nodeTypesRegistry, focusedNode, shouldScrollIntoView, requestScrollIntoView, destructiveOperationsAreDisabled, clipboardMode, clipboardNodeContextPath} = this.props;
+        const {nodeTypesRegistry, focusedNode, focusedNodesContextPaths, clipboardNodesContextPaths, shouldScrollIntoView, requestScrollIntoView, destructiveOperationsAreDisabled, clipboardMode} = this.props;
+        const focusedNodeContextPath = focusedNode.contextPath;
         const isDocument = nodeTypesRegistry.hasRole($get('nodeType', focusedNode), 'document');
-        // Don't render toolbar for the document nodes
-        if (isDocument) {
-            return null;
-        }
-        const isCut = focusedNodeContextPath === clipboardNodeContextPath && clipboardMode === 'Move';
-        const isCopied = focusedNodeContextPath === clipboardNodeContextPath && clipboardMode === 'Copy';
+        const allFocusedNodesAreInClipboard = isEqualSet(focusedNodesContextPaths, clipboardNodesContextPaths);
+        const isCut = allFocusedNodesAreInClipboard && clipboardMode === 'Move';
+        const isCopied = allFocusedNodesAreInClipboard && clipboardMode === 'Copy';
         const canBeDeleted = $get('policy.canRemove', this.props.focusedNode) || false;
         const canBeEdited = $get('policy.canEdit', this.props.focusedNode) || false;
         const visibilityCanBeToggled = !$contains('_hidden', 'policy.disallowedProperties', this.props.focusedNode);
 
         return (
             <div className={style.inlineUi} data-__neos__inline-ui="TRUE">
-                <NodeToolbar
+                {!isDocument && <NodeToolbar
                     shouldScrollIntoView={shouldScrollIntoView}
                     requestScrollIntoView={requestScrollIntoView}
                     destructiveOperationsAreDisabled={destructiveOperationsAreDisabled}
@@ -60,8 +60,10 @@ export default class InlineUI extends PureComponent {
                     canBeDeleted={canBeDeleted}
                     canBeEdited={canBeEdited}
                     visibilityCanBeToggled={visibilityCanBeToggled}
+                    contextPath={focusedNodeContextPath}
                     {...focused}
-                    />
+                    />}
+                <InlineValidationErrors />
             </div>
         );
     }

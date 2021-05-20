@@ -11,6 +11,7 @@ import {SynchronousRegistry, SynchronousMetaRegistry} from '@neos-project/neos-u
 import {
     getGuestFrameDocument,
     findNodeInGuestFrame,
+    closestNodeInGuestFrame,
     findAllOccurrencesOfNodeInGuestFrame,
     createEmptyContentCollectionPlaceholderIfMissing,
     findAllChildNodes,
@@ -77,7 +78,8 @@ manifest('main', {}, globalRegistry => {
             - nodeType: The nodeType of the associated node
             - editorOptions: The configuration for this inline editor
             - globalRegistry: The global registry
-            - persistChange: Will dispatch the respective action in from '@neos-project/neos-ui-redux-store' package (actions.Changes.persistChanges)
+            - onChange: Will first validate the property value and then persist the change if valid
+            - persistChange: Low level, use "onChange" in instead. Will dispatch the respective action in from '@neos-project/neos-ui-redux-store' package (actions.Changes.persistChanges)
     `));
 
     //
@@ -218,6 +220,17 @@ manifest('main', {}, globalRegistry => {
     });
 
     //
+    // When the server advices to update the nodes preview URL, dispatch the action to do so
+    //
+    serverFeedbackHandlers.set('Neos.Neos.Ui:UpdateNodePreviewUrl/Main', (feedbackPayload, {store}) => {
+        const state = store.getState();
+        const currentDocumentNodePath = $get('cr.nodes.documentNode', state);
+        if (feedbackPayload.contextPath === currentDocumentNodePath) {
+            store.dispatch(actions.UI.ContentCanvas.setPreviewUrl(feedbackPayload.newPreviewUrl));
+        }
+    });
+
+    //
     // When the server advices to reload the children of a document node, dispatch the action to do so.
     //
     serverFeedbackHandlers.set('Neos.Neos.Ui:NodeCreated/Main', (feedbackPayload, {store}) => {
@@ -249,11 +262,76 @@ manifest('main', {}, globalRegistry => {
     });
 
     //
+    // When the server has updated node path, apply it to the store
+    //
+    serverFeedbackHandlers.set('Neos.Neos.Ui:UpdateNodePath/Main', ({oldContextPath, newContextPath}, {store}) => {
+        let currentDocumentNodeMoved = false;
+        const parentContextPath = parentNodeContextPath(oldContextPath);
+
+        const state = store.getState();
+        if ($get('cr.nodes.focused.contextPath', state) === oldContextPath) {
+            store.dispatch(actions.CR.Nodes.unFocus());
+        }
+
+        if ($get('ui.pageTree.isFocused', state) === oldContextPath) {
+            store.dispatch(actions.UI.PageTree.focus(parentContextPath));
+        }
+
+        // If we are moving the current document node or one of its parents...
+        const [oldPath] = oldContextPath.split('@');
+        const currentDocumentNodePath = $get('cr.nodes.documentNode', state);
+        if (currentDocumentNodePath && (currentDocumentNodePath === oldContextPath || currentDocumentNodePath.split('@')[0].startsWith(oldPath + '/'))) {
+            currentDocumentNodeMoved = true;
+            let redirectContextPath = oldContextPath;
+            let redirectUri = null;
+            // Determine closest parent that is not being moved
+            while (!redirectUri) {
+                redirectContextPath = parentNodeContextPath(redirectContextPath);
+                // This is an extreme case when even the top node does not exist in the given dimension
+                // TODO: still find a nicer way to break out of this situation
+                if (redirectContextPath === false) {
+                    window.location = '/neos';
+                    break;
+                }
+                redirectUri = $get(['cr', 'nodes', 'byContextPath', redirectContextPath, 'uri'], state);
+            }
+
+            // Temporarily set the document node to the moved nodes parent before updating its path
+            store.dispatch(actions.CR.Nodes.setDocumentNode(redirectContextPath));
+        }
+
+        store.dispatch(actions.CR.Nodes.updatePath(oldContextPath, newContextPath));
+
+        // If we moved the current node we have to read the preview uri again and then redirect the content frame
+        // and also update the selected document node
+        if (currentDocumentNodeMoved) {
+            const newState = store.getState();
+            store.dispatch(actions.UI.ContentCanvas.setSrc($get(['cr', 'nodes', 'byContextPath', newContextPath, 'uri'], newState)));
+            store.dispatch(actions.CR.Nodes.setDocumentNode(newContextPath));
+        }
+
+        // Remove the node from the old position in the dom
+        if ($get('cr.nodes.documentNode', state) !== oldContextPath) {
+            findAllOccurrencesOfNodeInGuestFrame(oldContextPath).forEach(el => {
+                const closestContentCollection = el.closest('.neos-contentcollection');
+                el.remove();
+
+                createEmptyContentCollectionPlaceholderIfMissing(closestContentCollection);
+
+                dispatchCustomEvent('Neos.NodeRemoved', 'Node was removed.', {
+                    element: el
+                });
+            });
+        }
+    });
+
+    //
     // When the server has removed a node, remove it as well from the store amd the dom
     //
-    serverFeedbackHandlers.set('Neos.Neos.Ui:RemoveNode/Main', ({contextPath, parentContextPath}, {store}) => {
+    serverFeedbackHandlers.set('Neos.Neos.Ui:RemoveNode/Main', ({contextPath, parentContextPath}, {store, allFeedbacksFromThisRequest}) => {
         const state = store.getState();
-        if ($get('cr.nodes.focused.contextPath', state) === contextPath) {
+        const focusedNodeContextPath = selectors.CR.Nodes.focusedNodePathSelector(state);
+        if (focusedNodeContextPath === contextPath) {
             store.dispatch(actions.CR.Nodes.unFocus());
         }
 
@@ -261,16 +339,26 @@ manifest('main', {}, globalRegistry => {
             store.dispatch(actions.UI.PageTree.focus(parentContextPath));
         }
 
-        // If we are removing current document node...
+        // If we are removing current document node ...
         if ($get('cr.nodes.documentNode', state) === contextPath) {
+            // ... then, we need to determine the closest parent which is not removed, so that we can
+            // redirect to this node in the UI.
+            //
+            // Finding the closest existing parent node is not so easy: We cannot access the Redux store to find parent node paths (e.g.  via selectors.CR.Nodes.getPathInNode(state, redirectContextPath, 'parent')),
+            // because the parent's parent node might have ALSO been removed in the same request.
+            //
+            // Instead, we need to check ALL the RemoveNode feedbacks from the current change request; and traverse the parent hierarchy there.
+            // This is done in the helper function getParentContextPathFromFeedbacks().
+
             let redirectContextPath = contextPath;
             let redirectUri = null;
             // Determine closest parent that is not being removed
             while (!redirectUri) {
-                redirectContextPath = parentNodeContextPath(redirectContextPath);
+                redirectContextPath = getParentContextPathFromFeedbacks(redirectContextPath);
+
                 // This is an extreme case when even the top node does not exist in the given dimension
                 // TODO: still find a nicer way to break out of this situation
-                if (redirectContextPath === false) {
+                if (!redirectContextPath) {
                     window.location = '/neos';
                     break;
                 }
@@ -295,6 +383,19 @@ manifest('main', {}, globalRegistry => {
                     element: el
                 });
             });
+        }
+
+        // Inline Helper Function
+        function getParentContextPathFromFeedbacks(contextPath) {
+            const possibleRemoveNodeFeedback = allFeedbacksFromThisRequest
+                .filter(feedback => feedback.type === 'Neos.Neos.Ui:RemoveNode')
+                .find(feedback => feedback.payload.contextPath === contextPath);
+
+            if (possibleRemoveNodeFeedback) {
+                return possibleRemoveNodeFeedback.payload.parentContextPath;
+            }
+
+            return undefined;
         }
     });
 
@@ -332,6 +433,29 @@ manifest('main', {}, globalRegistry => {
         }
 
         const fusionPath = contentElement.dataset.__neosFusionPath;
+        // Check if an insertion anchor is defined and use this one for appending the childnode
+        const findInsertionParentByAnchor = () => {
+            let insertionParent = parentElement;
+            const insertionAnchors = parentElement.querySelectorAll('[data-__neos-insertion-anchor]');
+            for (const anchorElement of insertionAnchors) {
+                if (closestNodeInGuestFrame(anchorElement).dataset.__neosNodeContextpath === parentElement.dataset.__neosNodeContextpath) {
+                    insertionParent = anchorElement;
+                    break;
+                }
+            }
+            return insertionParent;
+        };
+        const insertionParent = findInsertionParentByAnchor();
+
+        const existingElement = findNodeInGuestFrame(
+            contextPath,
+            fusionPath
+        );
+
+        // Remove duplicate node in case of move action on the same level
+        if (existingElement) {
+            existingElement.remove();
+        }
 
         switch (mode) {
             case 'before':
@@ -344,7 +468,7 @@ manifest('main', {}, globalRegistry => {
 
             case 'into':
             default:
-                parentElement.appendChild(contentElement);
+                insertionParent.appendChild(contentElement);
                 break;
         }
 

@@ -1,15 +1,23 @@
 import {$get} from 'plow-js';
 import {createSelector, defaultMemoize} from 'reselect';
 import {GlobalState} from '@neos-project/neos-ui-redux-store/src/System';
-import {parentNodeContextPath} from './helpers';
 import {NodeContextPath, NodeMap, Node, NodeTypeName, ClipboardMode, NodeTypesRegistry} from '@neos-project/neos-ts-interfaces';
 
+export const inlineValidationErrorsSelector = (state: GlobalState) => $get(['cr', 'nodes', 'inlineValidationErrors'], state);
 export const nodesByContextPathSelector = (state: GlobalState) => $get(['cr', 'nodes', 'byContextPath'], state);
 export const siteNodeContextPathSelector = (state: GlobalState) => $get(['cr', 'nodes', 'siteNode'], state);
 export const documentNodeContextPathSelector = (state: GlobalState) => $get(['cr', 'nodes', 'documentNode'], state);
-// This is internal, as in most cases you want `focusedNodePathSelector`, which is able to fallback to documentNode, when no node is focused
-const _focusedNodeContextPathSelector = (state: GlobalState) => $get(['cr', 'nodes', 'focused', 'contextPath'], state);
+export const focusedNodePathsSelector = (state: GlobalState) => $get(['cr', 'nodes', 'focused', 'contextPaths'], state);
 
+// This is internal, as in most cases you want `focusedNodePathSelector`, which is able to fallback to documentNode, when no node is focused
+export const _focusedNodeContextPathSelector = createSelector(
+    [
+        focusedNodePathsSelector,
+    ],
+    (focusedNodePaths) => {
+        return focusedNodePaths && focusedNodePaths[0] ? focusedNodePaths[0] : null;
+    }
+);
 export const isDocumentNodeSelectedSelector = createSelector(
     [
         _focusedNodeContextPathSelector,
@@ -70,7 +78,7 @@ export const makeHasChildrenSelector = (allowedNodeTypes: NodeTypeName[]) => cre
         (state: GlobalState, contextPath: NodeContextPath) => $get(['cr', 'nodes', 'byContextPath', contextPath], state)
     ],
     node => (node && node.children || []).some(
-        childNodeEnvelope => allowedNodeTypes.includes(childNodeEnvelope.nodeType)
+        childNodeEnvelope => childNodeEnvelope ? allowedNodeTypes.includes(childNodeEnvelope.nodeType) : false
     )
 );
 
@@ -80,17 +88,21 @@ export const makeChildrenOfSelector = (allowedNodeTypes: NodeTypeName[]) => crea
         nodesByContextPathSelector
     ],
     (node, nodesByContextPath: NodeMap) => (node && node.children || [])
-    .filter(
-        childNodeEnvelope => {
-            const nodeType = childNodeEnvelope.nodeType;
-            return allowedNodeTypes.includes(nodeType) || nodeType === 'Neos.Neos:FallbackNode';
-        }
-    )
-    .map(
-        childNodeEnvelope => {
-            return nodesByContextPath[childNodeEnvelope.contextPath];
-        }
-    )
+        .filter(
+            childNodeEnvelope => {
+                return childNodeEnvelope !== null || childNodeEnvelope !== undefined;
+            }
+        )
+        .filter(
+            childNodeEnvelope => {
+                const nodeType = childNodeEnvelope ? childNodeEnvelope.nodeType : '';
+                return allowedNodeTypes.includes(nodeType) || nodeType === 'Neos.Neos:FallbackNode';
+            }
+        ).map(
+            childNodeEnvelope => {
+                return nodesByContextPath[childNodeEnvelope.contextPath];
+            }
+        )
 );
 
 export const siteNodeSelector = createSelector(
@@ -129,19 +141,17 @@ export const byContextPathSelector = defaultMemoize(
 );
 
 export const parentNodeSelector = (state: GlobalState) => (baseNode: Node) => {
-    const parent = parentNodeContextPath(baseNode.contextPath);
-    if (parent !== null) {
-        return byContextPathSelector(parent)(state);
+    if (baseNode.parent !== null) {
+        return byContextPathSelector(baseNode.parent)(state);
     }
     return null;
 };
 
 export const grandParentNodeSelector = (state: GlobalState) => (baseNode: Node) => {
-    const parent = parentNodeContextPath(baseNode.contextPath);
-    if (parent !== null) {
-        const grandParent = parentNodeContextPath(parent);
-        if (grandParent !== null) {
-            byContextPathSelector(grandParent)(state);
+    if (baseNode.parent !== null) {
+        const parentNode = byContextPathSelector(baseNode.parent)(state);
+        if (parentNode && parentNode.parent) {
+            return byContextPathSelector(parentNode.parent)(state);
         }
     }
     return null;
@@ -212,11 +222,13 @@ export const focusedGrandParentSelector = createSelector(
     }
 );
 
+export const clipboardNodesContextPathsSelector = (state: GlobalState) => $get(['cr', 'nodes', 'clipboard'], state);
+
 export const clipboardNodeContextPathSelector = createSelector(
     [
-        (state: GlobalState) => $get(['cr', 'nodes', 'clipboard'], state)
+        clipboardNodesContextPathsSelector
     ],
-    clipboardNodeContextPath => clipboardNodeContextPath
+    clipboardNodesContextPaths => Boolean(console.warn('This selector is deprecated, use "clipboardNodesContextPathsSelector" instead')) || (clipboardNodesContextPaths && clipboardNodesContextPaths[0])
 );
 
 export const clipboardIsEmptySelector = createSelector(
@@ -233,13 +245,13 @@ export const getPathInNode = (state: GlobalState, contextPath: NodeContextPath, 
     return $get(propertyPath, node);
 };
 
-export const makeGetAllowedChildNodeTypesSelector = (nodeTypesRegistry: NodeTypesRegistry, elevator: (id: string) => string | null = id => id) => createSelector(
+export const makeGetAllowedChildNodeTypesSelector = (nodeTypesRegistry: NodeTypesRegistry, elevator: (id: string, state: GlobalState) => string | null = id => id) => createSelector(
     [
         (state: GlobalState, {reference}: {reference: NodeContextPath | null, role: string}) => {
             if (reference === null) {
                 return null;
             }
-            const elevatedReference = elevator(reference);
+            const elevatedReference = elevator(reference, state);
             if (elevatedReference) {
                 return $get(['cr', 'nodes', 'byContextPath', elevatedReference], state) || null;
             }
@@ -249,9 +261,9 @@ export const makeGetAllowedChildNodeTypesSelector = (nodeTypesRegistry: NodeType
             if (reference === null) {
                 return null;
             }
-            const parentReference = parentNodeContextPath(reference);
+            const parentReference = getPathInNode(state, reference, 'parent');
             if (parentReference !== null) {
-                const elevatedReferenceParent = elevator(parentReference);
+                const elevatedReferenceParent = elevator(parentReference, state);
                 if (elevatedReferenceParent !== null) {
                     return $get(['cr', 'nodes', 'byContextPath', elevatedReferenceParent], state) || null;
                 }
@@ -275,7 +287,8 @@ export const makeGetAllowedChildNodeTypesSelector = (nodeTypesRegistry: NodeType
 );
 
 export const makeGetAllowedSiblingNodeTypesSelector = (nodeTypesRegistry: NodeTypesRegistry) =>
-    makeGetAllowedChildNodeTypesSelector(nodeTypesRegistry, parentNodeContextPath);
+    makeGetAllowedChildNodeTypesSelector(nodeTypesRegistry, (nodeContextPath, state) => getPathInNode(state, nodeContextPath, 'parent'));
+
 
 export const makeIsAllowedToAddChildOrSiblingNodes = (nodeTypesRegistry: NodeTypesRegistry) => createSelector(
     [
@@ -316,13 +329,13 @@ export const makeCanBeMovedIntoSelector = (nodeTypesRegistry: NodeTypesRegistry)
 export const makeCanBeMovedAlongsideSelector = (nodeTypesRegistry: NodeTypesRegistry) => createSelector(
     [
         makeCanBeCopiedAlongsideSelector(nodeTypesRegistry),
-        (_, {subject, reference}) => {
+        (state: GlobalState, {subject, reference}) => {
             if (reference === null) {
                 return false;
             }
             const subjectPath = subject && subject.split('@')[0];
-            const referenceParent = parentNodeContextPath(reference);
-            if (referenceParent === null) {
+            const referenceParent = getPathInNode(state, reference, 'parent') as string;
+            if (!referenceParent) {
                 return false;
             }
             return subjectPath ? referenceParent.indexOf(subjectPath) === 0 : false;
@@ -371,6 +384,20 @@ export const destructiveOperationsAreDisabledSelector = createSelector(
     }
 );
 
+export const destructiveOperationsAreDisabledForContentTreeSelector = createSelector(
+    [
+        siteNodeContextPathSelector,
+        focusedNodePathsSelector,
+        nodesByContextPathSelector
+    ],
+    (siteNodeContextPath, focusedNodesContextPaths, nodesByContextPath) => {
+        return focusedNodesContextPaths.map(contextPath => {
+            const node = nodesByContextPath[contextPath];
+            return node && node.isAutoCreated || siteNodeContextPath === contextPath;
+        }).filter(Boolean).length > 0;
+    }
+);
+
 export const focusedNodeParentLineSelector = createSelector(
     [
         focusedSelector,
@@ -381,12 +408,14 @@ export const focusedNodeParentLineSelector = createSelector(
         let currentNode = focusedNode;
 
         while (currentNode) {
-            const parent = parentNodeContextPath(currentNode.contextPath);
-            if (parent !== null) {
+            const parent = currentNode.parent;
+            if (parent) {
                 currentNode = nodesByContextPath[parent] || null;
                 if (currentNode) {
                     result.push(currentNode);
                 }
+            } else {
+                break;
             }
         }
 

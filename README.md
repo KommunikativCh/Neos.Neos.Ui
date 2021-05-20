@@ -1,25 +1,25 @@
 # @neos/neos-ui
-[![CircleCI](https://circleci.com/gh/neos/neos-ui.svg?style=svg)](https://circleci.com/gh/neos/neos-ui) [![Dependency Status](https://david-dm.org/neos/neos-ui.svg)](https://david-dm.org/neos/neos-ui) [![devDependency Status](https://david-dm.org/neos/neos-ui/dev-status.svg)](https://david-dm.org/neos/neos-ui#info=devDependencies&view=table)
+[![CircleCI](https://circleci.com/gh/neos/neos-ui.svg?style=svg)](https://circleci.com/gh/neos/neos-ui) [![Dependency Status](https://david-dm.org/neos/neos-ui.svg)](https://david-dm.org/neos/neos-ui) [![Known Vulnerabilities](https://snyk.io/test/github/neos/neos-ui/badge.svg?targetFile=package.json)](https://snyk.io/test/github/neos/neos-ui?targetFile=package.json)
 [![Slack](http://slack.neos.io/badge.svg)](http://slack.neos.io) [![Forum](https://img.shields.io/badge/forum-Discourse-39c6ff.svg)](https://discuss.neos.io/) [![Twitter](https://img.shields.io/twitter/follow/neoscms.svg?style=social)](https://twitter.com/NeosCMS)
 
-> The next generation Neos CMS interface written in ReactJS and a tonn of other fun technology.
+> The next generation Neos CMS interface written in ReactJS and a ton of other fun technology.
 
 ## Versioning
 
-Since Neos 5.0 (scheduled August 2019) this repository will become obsolete and `neos-ui` will be versioned and releases together with with the rest of Neos core packages.
+This repository follows the same versioning scheme as Neos itself.
+Release roadmap is [available here](https://www.neos.io/features/release-process.html)
 
-Until then, the following version conventions are in place:
-- 2.x versions are Neos 3.3 compatible (released from the `2.x` branch)
-- 3.x branch is Neos 4.x compatible (released from `master`)
-- We follow semver, but do not make bugfix releases for previous minor branches
+That means:
+* All bugfixes go to the lowest maintained branch
+* All new features go only to master
+* New minor and major releases are made in sync with Neos/Flow. Bugfix releases may be available independantly
 
-For users this means: **You will not get bugfixes for previous minor releases, so use a more relaxed version constraint like these:**
+### Currently maintained versions
 
-```
-"neos/neos-ui": "^3",
-```
-
-For developers this means: **All development happens in `2.x` branch and then getting upmered to `master`**
+* NeosCMS version 5.3: branch 5.3
+* NeosCMS version 7.0: branch 7.0
+* NeosCMS version 7.1: branch 7.1
+* latest development happens in master
 
 ## Browser support
 
@@ -44,6 +44,7 @@ The new UI is [already included](https://github.com/neos/neos-base-distribution/
 1. You need to have Neos CMS 3.3 or newer up & running.
 
 2. Run the following command:
+
 ```
 composer require neos/neos-ui
 ```
@@ -63,7 +64,7 @@ However, if you want to stay on bleeding-edge, or want to help out developing, y
 need the `dev-master` release. You can install the master release using:
 
 ```
-composer require neos/neos-ui:dev-master
+composer require neos/neos-ui-compiled:dev-master neos/neos-ui:dev-master
 ```
 
 ## Contributing
@@ -72,7 +73,7 @@ Please follow the respective guides for contributing on OSX and on Linux.
 
 ### on Windows
 
-1) Ensure you have the `2.x` or `dev-master` version installed (see above).
+1) Ensure you have the relevant version installed (see above).
 
 2) Please install Docker for Windows.
 
@@ -80,7 +81,7 @@ Please follow the respective guides for contributing on OSX and on Linux.
 
 4) Inside `Configuration/Settings.yaml`, set the following property for disabling the pre-compiled files:
 
-```
+```yaml
 Neos:
   Neos:
     Ui:
@@ -93,7 +94,7 @@ Neos:
 
 In order to start contributing on OSX / Linux, follow the following steps:
 
-1) Ensure you have the `2.x` or `dev-master` version installed (see above).
+1) Ensure you have the relevant version installed (see above).
 
 2) We require [Chrome](https://www.google.com/chrome/browser/desktop/index.html) as well as the `yarn`(https://yarnpkg.com/en/) command and GNU Make(https://www.gnu.org/software/make/) to be installed on your system.
 
@@ -101,7 +102,7 @@ In order to start contributing on OSX / Linux, follow the following steps:
 
 4) Inside `Configuration/Settings.yaml`, set the following property for disabling the pre-compiled files:
 
-```
+```yaml
 Neos:
   Neos:
     Ui:
@@ -123,16 +124,16 @@ on how to write meaningful descriptions for your contributions.
 
 #### Doing upmerges
 
-1) Develop only in the `2.x` branch, unless this feature is only compatible with Neos 4.x, then in `master`
-
-2) To do the upmerge do the following commands
+To do the upmerge run the following commands
 
 ```
-git checkout master && git fetch && git reset --hard origin/master && git merge --no-ff --no-commit origin/2.x --strategy-option=ours
+git checkout 7.0 && git fetch && git reset --hard origin/7.0 && git merge --no-ff --no-commit origin/5.3
+# review and `git commit`
+git checkout 7.1 && git fetch && git reset --hard origin/7.1 && git merge --no-ff --no-commit origin/7.0
+# review and `git commit`
+git checkout master && git fetch && git reset --hard origin/master && git merge --no-ff --no-commit origin/7.1
+# review and `git commit`
 ```
-Review the changes and commit the changes with the following commit message:
-
-`MERGE: Merge branch '2.x' into master`
 
 #### Development commands
 | Command         | Description                    |
@@ -159,16 +160,13 @@ repository root.
 
 An example file would look like this:
 
-```
+```javascript
 module.exports = {
     protocol: 'http',
     port: '123',
     hostname: 'localhost'
 };
 ```
-
-#### Code style
-Our code style is based upon `xo`, with one big difference - We use 4 spaces instead of tabs, to align our code style a bit with the PSR-2 standard for our PHP codebase. To lint the code, execute `make lint` in your shell.
 
 #### Writing unit tests
 The unit tests are executed with [jest](https://facebook.github.io/jest/).
@@ -180,7 +178,27 @@ Use `it.only(() => {})` and `describe.only(() => {})` if you want to run a speci
 
 #### Integration tests
 
-To setup end-to-end tests locally you have got to do the same things described in [CircleCI workflow](https://github.com/neos/neos-ui/blob/2.x/.circleci/config.yml), namely take the [test disribution](https://github.com/neos/neos-ui/blob/2.x/Tests/IntegrationTests/TestDistribution/composer.json) and `composer install` in it, put the right branch into Neos.Neos.Ui folder and run webserver and mysql server with the same config as described in the test distribution's [Settings.yaml](https://github.com/neos/neos-ui/blob/2.x/Tests/IntegrationTests/TestDistribution/Configuration/Settings.yaml) (or adjust it).
+To setup end-to-end tests locally you have got to do the same things described in [CircleCI workflow](https://github.com/neos/neos-ui/blob/master/.circleci/config.yml), namely take the [test disribution](https://github.com/neos/neos-ui/blob/master/Tests/IntegrationTests/TestDistribution/composer.json) and `composer install` in it, put the right branch into Neos.Neos.Ui folder and run webserver and mysql server with the same config as described in the test distribution's [Settings.yaml](https://github.com/neos/neos-ui/blob/master/Tests/IntegrationTests/TestDistribution/Configuration/Settings.yaml) (or adjust it).
+
+For executing the end to end tests on a Mac with catalina or higher you need to permit screen recording. Open 'System Preferences > Security & Privacy > Privacy > Screen Recording' and check 'TestCafe Browser Tools' in the application list.
+
+##### Debugging integration tests
+
+* View the recording via Sauce Labs. You can find the url in the beginning of the test output.
+* Observe Flow exceptions and logs in build artifacts.
+* You can trigger a SSH enabled build via the CircleCI interface and then login.
+
+###### Just the end to end tests fail
+
+It can happen that end to end tests fail caused by cached sources. So if you change PHP code for instance and don't adjust the composer.json it can happen that your new code change is not used because it is not part of the cache. In this case we need to flush the CircleCI caches manualy.
+
+We have introduced an environment variable called CACHE_VERSION. We need to change the variable to to new timestamp for instance to invalidate the caches.
+
+1. go to https://app.circleci.com/settings/project/github/neos/neos-ui and login
+2. open the project settings and choose `Environment Variables`
+3. Delete the `CACHE_VERSION` and create a new one with the value of the current timestamp
+
+Retrigger the build and it should work.
 
 #### Releasing
 

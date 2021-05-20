@@ -10,6 +10,7 @@ describe('<Dialog/>', () => {
         actions: ['Foo 1', 'Foo 2'],
         children: 'Foo children',
         isOpen: true,
+        autoFocus: true,
         onRequestClose: () => null,
         style: 'wide',
         type: 'error',
@@ -17,6 +18,7 @@ describe('<Dialog/>', () => {
             'dialog': 'dialogClassName',
             'dialog--narrow': 'narrowClassName',
             'dialog--wide': 'wideClassName',
+            'dialog--jumbo': 'jumboClassName',
             'dialog--success': 'successClassName',
             'dialog--warn': 'warnClassName',
             'dialog--error': 'errorClassName',
@@ -48,6 +50,14 @@ describe('<Dialog/>', () => {
         const section = portal.find('section');
 
         expect(section.prop('className')).toContain('wideClassName');
+    });
+
+    it('should render the "dialog--jumbo" className from the "theme" prop if the style is jumbo.', () => {
+        const wrapper = shallow(<DialogWithEscape {...props} style="jumbo"/>);
+        const portal = wrapper.find(Portal);
+        const section = portal.find('section');
+
+        expect(section.prop('className')).toContain('jumboClassName');
     });
 
     it('should render the "dialog--narrow" className from the "theme" prop if the style is narrow.', () => {

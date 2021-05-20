@@ -1,4 +1,5 @@
-import {urlWithParams, searchParams, getElementInnerText, getElementAttributeValue} from './Helpers';
+import {getElementInnerText, getElementAttributeValue, getContextString} from './Helpers';
+import {urlWithParams, encodeAsQueryString} from '@neos-project/utils-helpers/src/urlWithParams';
 
 import fetchWithErrorHandling from '../FetchWithErrorHandling/index';
 import {Change, NodeContextPath, WorkspaceName, DimensionCombination, DimensionPresetCombination, DimensionName} from '@neos-project/neos-ts-interfaces';
@@ -10,8 +11,8 @@ export interface Routes {
             publish: string;
             discard: string;
             changeBaseWorkspace: string;
-            copyNode: string;
-            cutNode: string;
+            copyNodes: string;
+            cutNodes: string;
             clearClipboard: string;
             loadTree: string;
             flowQuery: string;
@@ -107,8 +108,8 @@ export default (routes: Routes) => {
     })).then(response => fetchWithErrorHandling.parseJson(response))
     .catch(reason => fetchWithErrorHandling.generalErrorHandler(reason));
 
-    const copyNode = (node: NodeContextPath) => fetchWithErrorHandling.withCsrfToken(csrfToken => ({
-        url: routes.ui.service.copyNode,
+    const copyNodes = (nodes: NodeContextPath[]) => fetchWithErrorHandling.withCsrfToken(csrfToken => ({
+        url: routes.ui.service.copyNodes,
 
         method: 'POST',
         credentials: 'include',
@@ -117,13 +118,13 @@ export default (routes: Routes) => {
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-            node
+            nodes
         })
     })).then(response => fetchWithErrorHandling.parseJson(response))
     .catch(reason => fetchWithErrorHandling.generalErrorHandler(reason));
 
-    const cutNode = (node: NodeContextPath) => fetchWithErrorHandling.withCsrfToken(csrfToken => ({
-        url: routes.ui.service.cutNode,
+    const cutNodes = (nodes: NodeContextPath[]) => fetchWithErrorHandling.withCsrfToken(csrfToken => ({
+        url: routes.ui.service.cutNodes,
 
         method: 'POST',
         credentials: 'include',
@@ -132,7 +133,7 @@ export default (routes: Routes) => {
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-            node
+            nodes
         })
     })).then(response => fetchWithErrorHandling.parseJson(response))
     .catch(reason => fetchWithErrorHandling.generalErrorHandler(reason));
@@ -237,11 +238,6 @@ export default (routes: Routes) => {
     }).then(response => fetchWithErrorHandling.parseJson(response))
     .catch(reason => fetchWithErrorHandling.generalErrorHandler(reason));
 
-    const extractFileEndingFromUri = (uri: string) => {
-        const parts = uri.split('.');
-        return parts.length ? '.' + parts[parts.length - 1] : '';
-    };
-
     const assetProxyImport = (identifier: string) => fetchWithErrorHandling.withCsrfToken(csrfToken => ({
         url: `${routes.core.service.assetProxies}/${identifier.substr(0, identifier.indexOf('/'))}/${identifier.substr(identifier.indexOf('/') + 1)}`,
         method: 'POST',
@@ -262,17 +258,22 @@ export default (routes: Routes) => {
             return getElementInnerText(assetProxy, '.local-asset-identifier');
         });
 
-    const assetProxySearch = (searchTerm = '', assetSourceIdentifier = '', options: {assetsToExclude: string[]} = {assetsToExclude: []}) => fetchWithErrorHandling.withCsrfToken(() => ({
-        url: urlWithParams(routes.core.service.assetProxies, {searchTerm, assetSourceIdentifier}),
-
-        method: 'GET',
-        credentials: 'include'
-    }))
+    const assetProxySearch = (searchTerm: string, assetSourceIdentifier: string, options: {assetsToExclude: string[], constraints: any} = {assetsToExclude: [], constraints: {}}) => fetchWithErrorHandling.withCsrfToken(() => {
+        const constraints = options.constraints || {};
+        if (assetSourceIdentifier && !constraints.assetSources) {
+            constraints.assetSources = [assetSourceIdentifier];
+        }
+        return {
+            url: urlWithParams(routes.core.service.assetProxies, {searchTerm, constraints}),
+            method: 'GET',
+            credentials: 'include'
+        };
+    })
         .then(result => result.text())
         .then(result => {
             const assetProxyTable = document.createElement('table');
             assetProxyTable.innerHTML = result;
-            const assetProxies = Array.from(assetProxyTable.querySelectorAll('.asset')) as HTMLElement[];
+            const assetProxies = Array.from(assetProxyTable.querySelectorAll('.asset-proxy')) as HTMLElement[];
 
 
             const mappedAssetProxies = assetProxies.map((assetProxy: HTMLElement) => {
@@ -442,15 +443,14 @@ export default (routes: Routes) => {
                 if (!nodeType) {
                     throw new Error('.node-type not found in result');
                 }
-                const uri = uriElement.innerText.trim();
                 return {
                     dataType: 'Neos.ContentRepository:Node',
                     loaderUri: 'node://' + nodeIdentifier.innerText,
                     label: nodeLabel.innerText,
                     identifier: nodeIdentifier.innerText,
                     nodeType: nodeType.innerText,
-                    uri,
-                    uriInLiveWorkspace: uri.split('@')[0] + extractFileEndingFromUri(uri)
+                    uri: uriElement.getAttribute('href'),
+                    breadcrumb: uriElement.innerText.trim()
                 };
             });
         })
@@ -478,7 +478,7 @@ export default (routes: Routes) => {
                 }
 
                 // Hackish way to get context string from uri
-                const contextString = nodeFrontendUri.split('@')[1].split('.')[0];
+                const contextString = getContextString(nodeFrontendUri);
                 // TODO: Temporary hack due to missing contextPath in the API response
                 const nodeContextPath = `${nodePath.innerHTML}@${contextString}`;
 
@@ -497,6 +497,11 @@ export default (routes: Routes) => {
                     numberOfNodesMissingOnRootline
                 };
             }
+
+            if (result.status === 403) {
+                throw new Error('You are not authorized to perform this action.');
+            }
+
             throw new Error('Unexpected return code when trying to get the node data');
         });
     };
@@ -523,7 +528,7 @@ export default (routes: Routes) => {
 
         method: 'POST',
         credentials: 'include',
-        body: searchParams({
+        body: encodeAsQueryString({
             identifier,
             dimensions: targetDimensions,
             sourceDimensions,
@@ -610,8 +615,8 @@ export default (routes: Routes) => {
         publish,
         discard,
         changeBaseWorkspace,
-        copyNode,
-        cutNode,
+        copyNodes,
+        cutNodes,
         clearClipboard,
         createImageVariant,
         loadMasterPlugins,
